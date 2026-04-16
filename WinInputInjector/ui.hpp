@@ -24,7 +24,7 @@
 #include <sstream>
 #include <exception>
 
-#include "shared_data.hpp"
+#include "header.hpp"
 
 #include "ui_constants.hpp"
 

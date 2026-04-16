@@ -18,7 +18,7 @@ public:
 		uint16_t vkey = 0;
 		uint16_t scancode = 0;
 		uint16_t flags = 0;
-		uint16_t  down = 0;
+		uint16_t down = 0;
 	};
 
 	static constexpr size_t kQueueCapacity = 8192;

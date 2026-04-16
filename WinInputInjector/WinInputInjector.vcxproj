@@ -132,6 +132,7 @@
   <ItemGroup>
     <ClInclude Include="aop.hpp" />
     <ClInclude Include="framework.hpp" />
+    <ClInclude Include="header.hpp" />
     <ClInclude Include="inject_thread.hpp" />
     <ClInclude Include="inj_keyboardsim.hpp" />
     <ClInclude Include="low_latency_keyboard.hpp" />
