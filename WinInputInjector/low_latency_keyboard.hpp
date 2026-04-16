@@ -23,6 +23,11 @@ public:
 
 	inline static constexpr size_t kQueueCapacity = 8192;
 
+	inline static LowLatencyKeyboard& getInstance() {
+		static LowLatencyKeyboard instance;
+		return instance;
+	}
+
 	inline static bool handleWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 		static bool init = [] (HWND hwnd) -> bool {
 			hwnd_ = hwnd;
@@ -77,18 +82,17 @@ public:
 		clearKeyState();
 	}
 
-	inline static LowLatencyKeyboard& getInstance() {
-		static LowLatencyKeyboard instance;
-		return instance;
+	inline static bool isKeyDown(uint16_t vkey) noexcept {
+		if (vkey >= 256) return false;
+		return key_down_[vkey].load(std::memory_order_acquire);
 	}
 
+private:
+	LowLatencyKeyboard() = default;
 	LowLatencyKeyboard(const LowLatencyKeyboard&) = delete;
 	LowLatencyKeyboard& operator=(const LowLatencyKeyboard&) = delete;
 	LowLatencyKeyboard(LowLatencyKeyboard&&) = delete;
 	LowLatencyKeyboard& operator=(LowLatencyKeyboard&&) = delete;
-
-private:
-	LowLatencyKeyboard() = default;
 
 	virtual ~LowLatencyKeyboard() {
 		RAWINPUTDEVICE rid{};
@@ -101,14 +105,6 @@ private:
 		clear();
 	}
 
-protected:
-	// usually useless for external users
-	inline static bool isKeyDown(uint16_t vkey) noexcept {
-		if (vkey >= 256) return false;
-		return key_down_[vkey].load(std::memory_order_acquire);
-	}
-
-private:
 	inline static void clearKeyState() {
 		for (size_t i = 0; i < 256; ++i) {
 			shadow_down_[i] = 0;
