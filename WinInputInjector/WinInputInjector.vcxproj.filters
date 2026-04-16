@@ -48,8 +48,17 @@
     <ClInclude Include="ui_constants.hpp">
       <Filter>头文件\UI</Filter>
     </ClInclude>
-    <ClInclude Include="tsf.hpp">
+    <ClInclude Include="inj_unicode.hpp">
       <Filter>头文件\CORE</Filter>
+    </ClInclude>
+    <ClInclude Include="inject_thread.hpp">
+      <Filter>头文件\CORE</Filter>
+    </ClInclude>
+    <ClInclude Include="inj_keyboardsim.hpp">
+      <Filter>头文件\CORE</Filter>
+    </ClInclude>
+    <ClInclude Include="low_latency_keyboard.hpp">
+      <Filter>头文件\SYS</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

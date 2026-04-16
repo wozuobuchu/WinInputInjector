@@ -1,4 +1,4 @@
-#ifndef _SHARED_DATA_HPP
+﻿#ifndef _SHARED_DATA_HPP
 #define _SHARED_DATA_HPP
 
 #pragma once
