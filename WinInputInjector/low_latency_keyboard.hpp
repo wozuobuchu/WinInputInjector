@@ -116,7 +116,7 @@ private:
 		uint16_t vkey = (uint16_t)kbd.VKey;
 		const uint16_t flags = (uint16_t)kbd.Flags;
 		if (vkey == VK_SHIFT) {
-			vkey = (uint16_t)MapVirtualKeyW(kbd.MakeCode, MAPVK_VSC_TO_VK_EX);
+			vkey = (kbd.MakeCode == 0x36) ? VK_RSHIFT : VK_LSHIFT;
 		} else if (vkey == VK_CONTROL) {
 			vkey = (flags & RI_KEY_E0) ? VK_RCONTROL : VK_LCONTROL;
 		} else if (vkey == VK_MENU) {
