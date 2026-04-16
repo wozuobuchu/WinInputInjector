@@ -25,13 +25,16 @@ public:
 
 	bool handleWndProc(HWND, UINT msg, WPARAM, LPARAM lParam) {
 		switch (msg) {
-		case WM_INPUT:
-			onRawInput(lParam);
-			return true;
-		default:
-			return false;
+			case WM_INPUT:
+			{
+				onRawInput(lParam);
+				return true;
+			}
+			default:
+			{
+				return false;
+			}
 		}
-
 		return false;
 	}
 
@@ -75,6 +78,9 @@ public:
 	}
 
 	LowLatencyKeyboard() = default;
+	LowLatencyKeyboard(const LowLatencyKeyboard&) = delete;
+	LowLatencyKeyboard& operator=(const LowLatencyKeyboard&) = delete;
+	LowLatencyKeyboard& operator=(LowLatencyKeyboard&&) = delete;
 
 	virtual ~LowLatencyKeyboard() {
 		RAWINPUTDEVICE rid{};
@@ -120,36 +126,32 @@ private:
 	}
 
 	void onRawInput(LPARAM lParam) {
-		UINT size = 0;
-		if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, nullptr, &size, sizeof(RAWINPUTHEADER)) != 0) return;
+		RAWINPUT raw{};
+		UINT size = sizeof(raw);
 
-		tmp_.resize(size);
-		if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, tmp_.data(), &size, sizeof(RAWINPUTHEADER)) != size) return;
+		// 直接一次性获取，无需查询 size 和 resize
+		if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == (UINT)-1) {
+			return;
+		}
 
-		const RAWINPUT* ri = reinterpret_cast<const RAWINPUT*>(tmp_.data());
-		if (ri->header.dwType != RIM_TYPEKEYBOARD) return;
+		if (raw.header.dwType != RIM_TYPEKEYBOARD) return;
 
-		const RAWKEYBOARD& kbd = ri->data.keyboard;
+		const RAWKEYBOARD& kbd = raw.data.keyboard;
 		if (kbd.VKey == 255) return; // fake key
 
 		const uint16_t vkey = normalizeVKey(kbd);
+		if (vkey >= 256) return;
+
 		const uint16_t scan = (uint16_t)kbd.MakeCode;
 		const uint16_t flags = (uint16_t)kbd.Flags;
 		const uint8_t newDown = (flags & RI_KEY_BREAK) ? 0 : 1;
 
-		// discard repeat events
 		if (shadow_down_[vkey] == newDown) return;
-		
-		// update state only when changed
+
 		shadow_down_[vkey] = newDown;
 		key_down_[vkey].store(newDown, std::memory_order_release);
 
-		KeyEvent ev{};
-		ev.vkey = vkey;
-		ev.scancode = scan;
-		ev.flags = flags;
-		ev.down = newDown;
-
+		KeyEvent ev{ vkey, scan, flags, newDown };
 		pushEvent_(ev);
 	}
 
@@ -160,8 +162,6 @@ private:
 
 	std::array<uint8_t, 256> shadow_down_{};
 	std::array<std::atomic<uint8_t>, 256> key_down_{};
-
-	std::vector<uint8_t> tmp_;
 };
 
 #endif // !_LOW_LATENCY_KEYBOARD_HPP_
