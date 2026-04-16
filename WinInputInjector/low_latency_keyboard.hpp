@@ -21,9 +21,30 @@ public:
 		uint16_t down = 0;
 	};
 
-	static constexpr size_t kQueueCapacity = 8192;
+	inline static constexpr size_t kQueueCapacity = 8192;
 
-	bool handleWndProc(HWND, UINT msg, WPARAM, LPARAM lParam) {
+	inline static bool handleWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+		static bool init = [] (HWND hwnd) -> bool {
+			hwnd_ = hwnd;
+			if (!hwnd_) return false;
+
+			RAWINPUTDEVICE rid{};
+			rid.usUsagePage = 0x01;
+			rid.usUsage = 0x06;
+			rid.dwFlags = 0;
+			rid.dwFlags |= RIDEV_NOLEGACY;
+			rid.dwFlags |= RIDEV_INPUTSINK;
+			rid.hwndTarget = hwnd_;
+
+			if (!RegisterRawInputDevices(&rid, 1, sizeof(rid))) {
+				hwnd_ = nullptr;
+				return false;
+			}
+
+			clear();
+			return true;
+		} (hwnd);
+
 		switch (msg) {
 			case WM_INPUT:
 			{
@@ -38,11 +59,11 @@ public:
 		return false;
 	}
 
-	bool popEvent(KeyEvent& out) noexcept {
+	inline static bool popEvent(KeyEvent& out) noexcept {
 		return queue_.pop(out);
 	}
 
-	size_t popEvents(KeyEvent* out, size_t maxCount) noexcept {
+	inline static size_t popEvents(KeyEvent* out, size_t maxCount) noexcept {
 		size_t n = 0;
 		for (; n < maxCount; ++n) {
 			if (!queue_.pop(out[n])) break;
@@ -50,37 +71,24 @@ public:
 		return n;
 	}
 
-	void clear() {
+	inline static void clear() {
 		KeyEvent dummy{};
 		while (queue_.pop(dummy)) {}
 		clearKeyState();
 	}
 
-	bool init(HWND hwnd, bool disableLegacy = true, bool captureInBackground = false) noexcept {
-		hwnd_ = hwnd;
-		if (!hwnd_) return false;
-
-		RAWINPUTDEVICE rid{};
-		rid.usUsagePage = 0x01;
-		rid.usUsage = 0x06;
-		rid.dwFlags = 0;
-		if (disableLegacy) rid.dwFlags |= RIDEV_NOLEGACY;
-		if (captureInBackground) rid.dwFlags |= RIDEV_INPUTSINK;
-		rid.hwndTarget = hwnd_;
-
-		if (!RegisterRawInputDevices(&rid, 1, sizeof(rid))) {
-			hwnd_ = nullptr;
-			return false;
-		}
-
-		clear();
-		return true;
+	inline static LowLatencyKeyboard& getInstance() {
+		static LowLatencyKeyboard instance;
+		return instance;
 	}
 
-	LowLatencyKeyboard() = default;
 	LowLatencyKeyboard(const LowLatencyKeyboard&) = delete;
 	LowLatencyKeyboard& operator=(const LowLatencyKeyboard&) = delete;
+	LowLatencyKeyboard(LowLatencyKeyboard&&) = delete;
 	LowLatencyKeyboard& operator=(LowLatencyKeyboard&&) = delete;
+
+private:
+	LowLatencyKeyboard() = default;
 
 	virtual ~LowLatencyKeyboard() {
 		RAWINPUTDEVICE rid{};
@@ -95,20 +103,20 @@ public:
 
 protected:
 	// usually useless for external users
-	bool isKeyDown(uint16_t vkey) const noexcept {
+	inline static bool isKeyDown(uint16_t vkey) noexcept {
 		if (vkey >= 256) return false;
 		return key_down_[vkey].load(std::memory_order_acquire);
 	}
 
 private:
-	void clearKeyState() {
+	inline static void clearKeyState() {
 		for (size_t i = 0; i < 256; ++i) {
 			shadow_down_[i] = 0;
 			key_down_[i].store(0, std::memory_order_relaxed);
 		}
 	}
 
-	static uint16_t normalizeVKey(const RAWKEYBOARD& kbd) {
+	inline static uint16_t normalizeVKey(const RAWKEYBOARD& kbd) {
 		uint16_t vkey = (uint16_t)kbd.VKey;
 		const uint16_t flags = (uint16_t)kbd.Flags;
 		if (vkey == VK_SHIFT) {
@@ -121,18 +129,15 @@ private:
 		return vkey;
 	}
 
-	bool pushEvent_(const KeyEvent& ev) noexcept {
+	inline static bool pushEvent_(const KeyEvent& ev) noexcept {
 		return queue_.push(ev);
 	}
 
-	void onRawInput(LPARAM lParam) {
+	inline static void onRawInput(LPARAM lParam) {
 		RAWINPUT raw{};
 		UINT size = sizeof(raw);
 
-		// 直接一次性获取，无需查询 size 和 resize
-		if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == (UINT)-1) {
-			return;
-		}
+		if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) == (UINT)(-1)) return;
 
 		if (raw.header.dwType != RIM_TYPEKEYBOARD) return;
 
@@ -155,13 +160,13 @@ private:
 		pushEvent_(ev);
 	}
 
-	HWND hwnd_ = nullptr;
+	inline static HWND hwnd_ = nullptr;
 
 	// SPSC queue, fixed size
-	boost::lockfree::spsc_queue<KeyEvent, boost::lockfree::capacity<kQueueCapacity>> queue_{};
+	inline static boost::lockfree::spsc_queue<KeyEvent, boost::lockfree::capacity<kQueueCapacity>> queue_{};
 
-	std::array<uint8_t, 256> shadow_down_{};
-	std::array<std::atomic<uint8_t>, 256> key_down_{};
+	inline static std::array<uint8_t, 256> shadow_down_{};
+	inline static std::array<std::atomic<uint8_t>, 256> key_down_{};
 };
 
 #endif // !_LOW_LATENCY_KEYBOARD_HPP_
