@@ -22,6 +22,9 @@
     <Filter Include="头文件\UI">
       <UniqueIdentifier>{390f4110-1229-4c5f-ad13-e3392269ae5c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="头文件\CORE">
+      <UniqueIdentifier>{24f92393-69e9-4415-8143-670ac742080d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="targetver.hpp">
@@ -44,6 +47,9 @@
     </ClInclude>
     <ClInclude Include="ui_constants.hpp">
       <Filter>头文件\UI</Filter>
+    </ClInclude>
+    <ClInclude Include="tsf.hpp">
+      <Filter>头文件\CORE</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

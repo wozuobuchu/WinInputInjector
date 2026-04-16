@@ -126,12 +126,12 @@ namespace ui {
 		wndclass_main->cbClsExtra = NULL;
 		wndclass_main->cbWndExtra = NULL;
 		wndclass_main->hInstance = hInstance;
-		//wndclass_main->hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON));
+		//wndclass_main->hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON_BIG));
 		wndclass_main->hCursor = LoadCursor(NULL, IDC_ARROW);
 		wndclass_main->hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 		wndclass_main->lpszMenuName = NULL;
 		wndclass_main->lpszClassName = TEXT("MainUIWindowClass");
-		//wndclass_main->hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON));
+		//wndclass_main->hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON_SMALL));
 
 		if (!RegisterClassEx(wndclass_main)) {
 			shared_data::sts_.request_stop();
