@@ -56,12 +56,8 @@ namespace ui {
 			case WM_GETMINMAXINFO:
 			{
 				LPMINMAXINFO lpMinMaxInfo = (LPMINMAXINFO)lParam;
-				// Set a reasonable minimum tracking size
-
 				lpMinMaxInfo->ptMinTrackSize.x = 600;
-
 				lpMinMaxInfo->ptMinTrackSize.y = 400;
-				// We don't set ptMaxTrackSize, so the default (full screen) is the max.
 				return 0;
 			}
 
@@ -73,7 +69,6 @@ namespace ui {
 			case WM_COMMAND:
 			{
 				int cmd = LOWORD(wParam);
-				// Handle menu commands
 				switch (cmd) {
 					default:
 					{
@@ -86,7 +81,6 @@ namespace ui {
 			case WM_SIZE:
 			{
 				if (wParam == SIZE_MINIMIZED) return 0;
-				// Debounce window resize (lazy evaluation) to prevent UI freezing with large lists
 				KillTimer(hwnd, 9999);
 				SetTimer(hwnd, 9999, 30, NULL);
 				return 0;
@@ -134,8 +128,8 @@ namespace ui {
 		wndclass_main->hInstance = hInstance;
 		//wndclass_main->hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON));
 		wndclass_main->hCursor = LoadCursor(NULL, IDC_ARROW);
-		wndclass_main->hbrBackground = (HBRUSH)(COLOR_WINDOW + 1); // Standard window background
-		wndclass_main->lpszMenuName = NULL; // We set the menu on the window, not the class
+		wndclass_main->hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+		wndclass_main->lpszMenuName = NULL;
 		wndclass_main->lpszClassName = TEXT("MainUIWindowClass");
 		//wndclass_main->hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_ICON));
 
