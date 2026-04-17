@@ -36,13 +36,6 @@ name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 namespace ui {
-	inline HWND g_hwndInput = NULL;
-	inline HWND g_hwndMode = NULL;
-	inline HWND g_hwndSubmit = NULL;
-	inline HWND g_hwndClear = NULL;
-	inline HWND g_hwndProgress = NULL;
-	inline HFONT g_hFont = NULL;
-
 	inline std::wstring GetInputText() {
 		if (!g_hwndInput) return L"";
 		int len = GetWindowTextLengthW(g_hwndInput);
@@ -59,6 +52,17 @@ namespace ui {
 	inline int GetSelectedMode() {
 		if (!g_hwndMode) return 0;
 		return (int)SendMessageW(g_hwndMode, CB_GETCURSEL, 0, 0);
+	}
+
+	inline int GetInterval() {
+		if (!g_hwndIntervalInput) return 0;
+		wchar_t buf[32] = { 0 };
+		GetWindowTextW(g_hwndIntervalInput, buf, 32);
+		try {
+			return std::stoi(buf);
+		} catch (...) {
+			return 0;
+		}
 	}
 
 	inline void SetProgress(int percent) {
@@ -88,9 +92,20 @@ namespace ui {
 			case WM_GETMINMAXINFO:
 			{
 				LPMINMAXINFO lpMinMaxInfo = (LPMINMAXINFO)lParam;
-				lpMinMaxInfo->ptMinTrackSize.x = 600;
-				lpMinMaxInfo->ptMinTrackSize.y = 400;
+				lpMinMaxInfo->ptMinTrackSize.x = 720;
+				lpMinMaxInfo->ptMinTrackSize.y = 480;
 				return 0;
+			}
+
+			case WM_CTLCOLORSTATIC:
+			{
+				HDC hdc = (HDC)wParam;
+				HWND hwndCtrl = (HWND)lParam;
+				if (hwndCtrl == g_hwndIntervalLabel) {
+					SetBkMode(hdc, TRANSPARENT);
+					return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+				}
+				break;
 			}
 
 			case WM_CREATE:
@@ -110,10 +125,15 @@ namespace ui {
 
 				g_hwndProgress = CreateWindowExW(0, PROGRESS_CLASSW, L"", WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 0, 0, 0, 0, hwnd, (HMENU)IDC_PROGRESS, NULL, NULL);
 
+				g_hwndIntervalLabel = CreateWindowExW(0, L"STATIC", L"Interval (us):", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_LABEL, NULL, NULL);
+				g_hwndIntervalInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"0", WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_INPUT, NULL, NULL);
+
 				SendMessageW(g_hwndInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 				SendMessageW(g_hwndMode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 				SendMessageW(g_hwndSubmit, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 				SendMessageW(g_hwndClear, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+				SendMessageW(g_hwndIntervalLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+				SendMessageW(g_hwndIntervalInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
 				return 0;
 			}
@@ -162,8 +182,17 @@ namespace ui {
 
 					int bottomRowY = height - margin - progressHeight - margin - buttonHeight;
 
-					int comboWidth = 200;
+					int comboWidth = 150;
 					MoveWindow(g_hwndMode, margin, bottomRowY + (buttonHeight - 30) / 2, comboWidth, 200, TRUE);
+
+					int labelWidth = 95;
+					int intervalWidth = 70;
+					int currentX = margin + comboWidth + controlGap;
+
+					MoveWindow(g_hwndIntervalLabel, currentX, bottomRowY, labelWidth, buttonHeight, TRUE);
+					currentX += labelWidth + (controlGap / 2);
+
+					MoveWindow(g_hwndIntervalInput, currentX, bottomRowY + (buttonHeight - 30) / 2, intervalWidth, 30, TRUE);
 
 					int buttonWidth = 100;
 					MoveWindow(g_hwndSubmit, width - margin - buttonWidth * 2 - controlGap, bottomRowY, buttonWidth, buttonHeight, TRUE);
