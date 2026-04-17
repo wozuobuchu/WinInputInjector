@@ -6,5 +6,6 @@
 #include "aop.hpp"
 #include "shared_data.hpp"
 #include "low_latency_keyboard.hpp"
+#include "inject_thread.hpp"
 
 #endif // !_HEADER_HPP
