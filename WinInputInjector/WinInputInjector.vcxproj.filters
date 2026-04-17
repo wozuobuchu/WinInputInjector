@@ -63,6 +63,9 @@
     <ClInclude Include="header.hpp">
       <Filter>头文件\RCS</Filter>
     </ClInclude>
+    <ClInclude Include="injector.hpp">
+      <Filter>头文件\CORE</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WinInputInjector.cpp">
