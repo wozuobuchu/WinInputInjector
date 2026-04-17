@@ -6,6 +6,7 @@
 #include <CommCtrl.h>
 #include <commdlg.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <chrono>
@@ -51,6 +52,10 @@ namespace ui {
 		return buf;
 	}
 
+	enum class InputMode : int {
+		SendUnicodeInput = 0,
+		SimulateKeyboard = 1,
+	};
 	inline int GetSelectedMode() {
 		if (!g_hwndMode) return 0;
 		return (int)SendMessageW(g_hwndMode, CB_GETCURSEL, 0, 0);
@@ -58,8 +63,7 @@ namespace ui {
 
 	inline void SetProgress(int percent) {
 		if (!g_hwndProgress) return;
-		if (percent < 0) percent = 0;
-		if (percent > 100) percent = 100;
+		percent = std::clamp(percent, 0, 100);
 		SendMessageW(g_hwndProgress, PBM_SETPOS, percent, 0);
 	}
 
@@ -93,7 +97,7 @@ namespace ui {
 			{
 				g_hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
 
-				g_hwndInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"Please enter the text you want to inject here...", WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INPUT, NULL, NULL);
+				g_hwndInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"Your text, press F1 to submit...", WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INPUT, NULL, NULL);
 
 				g_hwndMode = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_MODE, NULL, NULL);
 				SendMessageW(g_hwndMode, CB_ADDSTRING, 0, (LPARAM)L"SendUnicodeInput");
