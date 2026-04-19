@@ -46,6 +46,8 @@ public:
 
 		progress_.store(0, std::memory_order_relaxed);
 		ready_.store(false, std::memory_order_release);
+
+		worker_ = std::thread(thread_assist, mode, interval);
 	}
 
 private:
