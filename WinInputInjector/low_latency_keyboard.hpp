@@ -37,7 +37,7 @@ public:
 			rid.usUsagePage = 0x01;
 			rid.usUsage = 0x06;
 			rid.dwFlags = 0;
-			rid.dwFlags |= RIDEV_NOLEGACY;
+			//rid.dwFlags |= RIDEV_NOLEGACY;
 			rid.dwFlags |= RIDEV_INPUTSINK;
 			rid.hwndTarget = hwnd_;
 
