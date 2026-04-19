@@ -60,7 +60,7 @@ namespace ui {
 		wchar_t buf[32] = { 0 };
 		GetWindowTextW(g_hwndIntervalInput, buf, 32);
 		try {
-			return std::stoi(buf);
+			return std::clamp(std::stoi(buf), 0, 1000000);
 		} catch (...) {
 			return 0;
 		}
@@ -203,17 +203,6 @@ namespace ui {
 				return 0;
 			}
 
-			case WM_MOUSEACTIVATE:
-			{
-				POINT pt;
-				GetCursorPos(&pt);
-				HWND hwndHit = WindowFromPoint(pt);
-				if (hwndHit != g_hwndInput && hwndHit != g_hwndIntervalInput && hwndHit != g_hwndMode) {
-					return MA_NOACTIVATE;
-				}
-				break;
-			}
-
 			case WM_SIZE:
 			{
 				if (wParam == SIZE_MINIMIZED) return 0;
@@ -322,7 +311,7 @@ namespace ui {
 		}
 
 		HWND hwnd = CreateWindowEx(
-			WS_EX_CLIENTEDGE | WS_EX_TOPMOST,
+			WS_EX_CLIENTEDGE,
 			wndclass_main->lpszClassName,
 			TEXT("WinInputInjector"),
 			WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
