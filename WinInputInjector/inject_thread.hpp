@@ -49,26 +49,58 @@ public:
 	}
 
 private:
-	inline static void thread_assist_unicode_stepper(const int interval) {
-		UnicodeSender sender;
+	inline static std::unique_ptr<Injector> create_injector(const int mode) {
+		switch (mode) {
+			case 0:
+			{
+				return std::make_unique<UnicodeSender>();
+			}
 
+			default:
+			{
+				return nullptr;
+			}
+		}
+
+		return nullptr;
+	}
+
+	inline static void thread_assist(const int mode, const int interval) {
 		std::wstring text;
 		{
 			auto lck = input_text_.AcquireLock();
 			text = *lck;
 		}
 
-		for (size_t i = 0; i < text.size(); ++i) {
-			if (shared_data::sts_.stop_requested()) {
-				break;
+		std::unique_ptr<Injector> inj = create_injector(mode);
+
+		if (inj && !text.empty()) {
+			if (interval > 0) {
+				thread_assist_stepper(text, interval, inj.get());
+			} else {
+				thread_assist_utmost(text, interval, inj.get());
 			}
-			sender.inject_wchar(text[i]);
-			progress_.store(static_cast<int>((static_cast<size_t>(i + 1) * 100 / text.size())), std::memory_order_relaxed);
-			std::this_thread::sleep_for(std::chrono::milliseconds(interval));
 		}
 
 		progress_.store(100, std::memory_order_relaxed);
 		ready_.store(true, std::memory_order_release);
+	}
+
+	inline static void thread_assist_utmost(const std::wstring& text, const int interval, Injector* inj) {
+		(void) interval;
+		inj->inject_wstring(text);
+	}
+
+	inline static void thread_assist_stepper(const std::wstring& text, const int interval, Injector* inj) {
+		inj->set_tick_interval(interval);
+		for (size_t i = 0; i < text.size(); ++i) {
+			if (shared_data::sts_.stop_requested()) {
+				break;
+			}
+			inj->tick();
+			inj->inject_wchar(text[i]);
+			progress_.store(static_cast<int>((static_cast<size_t>(i + 1) * 100 / text.size())), std::memory_order_relaxed);
+		}
 	}
 
 	inline static aop::LockBox<std::wstring> input_text_;
