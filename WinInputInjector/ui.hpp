@@ -203,6 +203,17 @@ namespace ui {
 				return 0;
 			}
 
+			case WM_MOUSEACTIVATE:
+			{
+				POINT pt;
+				GetCursorPos(&pt);
+				HWND hwndHit = WindowFromPoint(pt);
+				if (hwndHit != g_hwndInput && hwndHit != g_hwndIntervalInput && hwndHit != g_hwndMode) {
+					return MA_NOACTIVATE;
+				}
+				break;
+			}
+
 			case WM_SIZE:
 			{
 				if (wParam == SIZE_MINIMIZED) return 0;
@@ -311,7 +322,7 @@ namespace ui {
 		}
 
 		HWND hwnd = CreateWindowEx(
-			WS_EX_CLIENTEDGE,
+			WS_EX_CLIENTEDGE | WS_EX_TOPMOST,
 			wndclass_main->lpszClassName,
 			TEXT("WinInputInjector"),
 			WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
