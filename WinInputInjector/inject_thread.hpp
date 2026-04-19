@@ -48,6 +48,12 @@ public:
 		ready_.store(false, std::memory_order_release);
 
 		worker_ = std::thread(thread_assist, mode, interval);
+		return true;
+	}
+
+	inline static void set_input_text(const std::wstring& text) {
+		auto lck = input_text_.AcquireLock();
+		*lck = text;
 	}
 
 private:

@@ -147,6 +147,20 @@ namespace ui {
 						SetWindowTextW(g_hwndInput, L"");
 						break;
 					}
+
+					case IDC_SUBMIT:
+					{
+						if (InjectThread::check_ready()) {
+							InjectThread::set_input_text(GetInputText());
+							if (InjectThread::launch_injection(GetSelectedMode(), GetInterval())) {
+								EnableWindow(g_hwndSubmit, FALSE);
+								SetTimer(hwnd, 1, 50, NULL);
+								SetTimer(hwnd, 2, 200, NULL);
+							}
+						}
+						break;
+					}
+
 					default:
 					{
 						break;
@@ -203,6 +217,17 @@ namespace ui {
 					MoveWindow(g_hwndInput, margin, margin, width - 2 * margin, inputHeight, TRUE);
 
 					InvalidateRect(hwnd, NULL, TRUE);
+					return 0;
+				} else if (wParam == 1) {
+					SetProgress(static_cast<int>(InjectThread::get_progress()));
+					return 0;
+				} else if (wParam == 2) {
+					if (InjectThread::check_ready()) {
+						KillTimer(hwnd, 1);
+						KillTimer(hwnd, 2);
+						SetProgress(static_cast<int>(InjectThread::get_progress()));
+						EnableWindow(g_hwndSubmit, TRUE);
+					}
 					return 0;
 				}
 				return 0;
