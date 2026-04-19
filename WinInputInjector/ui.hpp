@@ -28,6 +28,7 @@
 #include "header.hpp"
 
 #include "ui_constants.hpp"
+#include "low_latency_keyboard.hpp"
 
 #pragma comment(lib, "Comctl32.lib")
 
@@ -76,7 +77,44 @@ namespace ui {
 		HWND hwnd;
 	};
 
+	inline VOID CALLBACK ProgressTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
+		(void)uMsg; (void)idEvent; (void)dwTime;
+		SetProgress(static_cast<int>(InjectThread::get_progress()));
+	}
+
+	inline VOID CALLBACK CheckReadyTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
+		(void)uMsg; (void)idEvent; (void)dwTime;
+		if (InjectThread::check_ready()) {
+			KillTimer(hwnd, 1);
+			KillTimer(hwnd, 2);
+			SetProgress(static_cast<int>(InjectThread::get_progress()));
+			EnableWindow(g_hwndSubmit, TRUE);
+		}
+	}
+
+	inline void SubmitInjection(HWND hwnd) {
+		if (InjectThread::check_ready()) {
+			InjectThread::set_input_text(GetInputText());
+			if (InjectThread::launch_injection(GetSelectedMode(), GetInterval())) {
+				EnableWindow(g_hwndSubmit, FALSE);
+				SetTimer(hwnd, 1, 50, ProgressTimerProc);
+				SetTimer(hwnd, 2, 200, CheckReadyTimerProc);
+			}
+		}
+	}
+
+	inline VOID CALLBACK KeyboardTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
+		(void)uMsg; (void)idEvent; (void)dwTime;
+		LowLatencyKeyboard::KeyEvent ev;
+		while (LowLatencyKeyboard::popEvent(ev)) {
+			if (ev.vkey == VK_F1 && ev.down == 1) {
+				SubmitInjection(hwnd);
+			}
+		}
+	}
+
 	LRESULT CALLBACK windowproc_main(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+		LowLatencyKeyboard::handleWndProc(hwnd, uMsg, wParam, lParam);
 		switch (uMsg) {
 
 			case WM_SYSCOMMAND:
@@ -135,6 +173,8 @@ namespace ui {
 				SendMessageW(g_hwndIntervalLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 				SendMessageW(g_hwndIntervalInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
+				SetTimer(hwnd, 3, 10, KeyboardTimerProc);
+
 				return 0;
 			}
 
@@ -150,14 +190,7 @@ namespace ui {
 
 					case IDC_SUBMIT:
 					{
-						if (InjectThread::check_ready()) {
-							InjectThread::set_input_text(GetInputText());
-							if (InjectThread::launch_injection(GetSelectedMode(), GetInterval())) {
-								EnableWindow(g_hwndSubmit, FALSE);
-								SetTimer(hwnd, 1, 50, NULL);
-								SetTimer(hwnd, 2, 200, NULL);
-							}
-						}
+						SubmitInjection(hwnd);
 						break;
 					}
 
@@ -217,17 +250,6 @@ namespace ui {
 					MoveWindow(g_hwndInput, margin, margin, width - 2 * margin, inputHeight, TRUE);
 
 					InvalidateRect(hwnd, NULL, TRUE);
-					return 0;
-				} else if (wParam == 1) {
-					SetProgress(static_cast<int>(InjectThread::get_progress()));
-					return 0;
-				} else if (wParam == 2) {
-					if (InjectThread::check_ready()) {
-						KillTimer(hwnd, 1);
-						KillTimer(hwnd, 2);
-						SetProgress(static_cast<int>(InjectThread::get_progress()));
-						EnableWindow(g_hwndSubmit, TRUE);
-					}
 					return 0;
 				}
 				return 0;
