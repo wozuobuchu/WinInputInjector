@@ -116,7 +116,7 @@ namespace ui {
 
 				g_hwndMode = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_MODE, NULL, NULL);
 				SendMessageW(g_hwndMode, CB_ADDSTRING, 0, (LPARAM)L"SendUnicodeInput");
-				SendMessageW(g_hwndMode, CB_ADDSTRING, 0, (LPARAM)L"SimulateKeyboard");
+				//SendMessageW(g_hwndMode, CB_ADDSTRING, 0, (LPARAM)L"SimulateKeyboard");
 				SendMessageW(g_hwndMode, CB_SETCURSEL, 0, 0);
 
 				g_hwndSubmit = CreateWindowExW(0, L"BUTTON", L"Submit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)IDC_SUBMIT, NULL, NULL);
