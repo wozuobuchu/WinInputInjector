@@ -1,86 +1,91 @@
-﻿#ifndef _AOP_HPP
-#define _AOP_HPP
-
 #pragma once
 
-#include <utility>
-#include <thread>
-#include <mutex>
-#include <functional>
+#ifndef AOP_HPP_
+#define AOP_HPP_
+
 #include <chrono>
-#include <stop_token>
-#include <memory>
+#include <concepts>
+#include <condition_variable>
+#include <mutex>
+#include <utility>
 
 namespace aop {
 
-template <typename _Tp>
-class LockBox {
-private:
-	class LockProxy;
-	friend class LockProxy;
+    template <typename T>
+    class LockBox {
+    public:
+        class LockProxy {
+        public:
+            LockProxy(const LockProxy&) = delete;
+            LockProxy& operator=(const LockProxy&) = delete;
 
-	std::mutex mtx_;
-	_Tp obj_;
+            LockProxy(LockProxy&& other) noexcept : lock_(std::move(other.lock_)), obj_(std::exchange(other.obj_, nullptr)) {}
 
-public:
-	class LockProxy {
-	private:
-		friend class LockBox;
+            LockProxy& operator=(LockProxy&& other) noexcept {
+                if (this != &other) {
+                    lock_ = std::move(other.lock_);
+                    obj_ = std::exchange(other.obj_, nullptr);
+                }
+                return *this;
+            }
 
-		std::mutex* mtx_ptr_ = nullptr;
-		_Tp* obj_ptr_ = nullptr;
+            T* operator->() noexcept { return obj_; }
 
-		LockProxy() = delete;
-		LockProxy(const LockProxy&) = delete;
-		LockProxy& operator=(const LockProxy&) = delete;
-		LockProxy& operator=(LockProxy&& other) = delete;
+            T& operator*() noexcept { return *obj_; }
 
-		LockProxy(LockBox<_Tp>* box_ptr_) noexcept {
-			mtx_ptr_ = &box_ptr_->mtx_;
-			obj_ptr_ = &box_ptr_->obj_;
+            const T* operator->() const noexcept { return obj_; }
 
-			mtx_ptr_->lock();
-		}
+            const T& operator*() const noexcept { return *obj_; }
 
-	public:
-		LockProxy(LockProxy&& other) noexcept : mtx_ptr_(other.mtx_ptr_), obj_ptr_(other.obj_ptr_) {
-			other.mtx_ptr_ = nullptr;
-			other.obj_ptr_ = nullptr;
-		}
+            template <typename Predicate>
+            void wait(std::condition_variable& cv, Predicate&& predicate) {
+                if (!lock_.owns_lock()) return;
+                cv.wait(lock_, std::forward<Predicate>(predicate));
+            }
 
-		~LockProxy() {
-			if (mtx_ptr_) {
-				mtx_ptr_->unlock();
-			}
-		}
+            template <typename Rep, typename Period, typename Predicate>
+            bool wait_for(std::condition_variable& cv, const std::chrono::duration<Rep, Period>& timeout, Predicate&& predicate) {
+                if (!lock_.owns_lock()) return false;
+                return cv.wait_for(lock_, timeout, std::forward<Predicate>(predicate));
+            }
 
-		_Tp* operator->() { return obj_ptr_; }
+            template <typename Clock, typename Duration, typename Predicate>
+            bool wait_until(std::condition_variable& cv, const std::chrono::time_point<Clock, Duration>& timeout_time, Predicate&& predicate) {
+                if (!lock_.owns_lock()) return false;
+                return cv.wait_until(lock_, timeout_time, std::forward<Predicate>(predicate));
+            }
 
-		const _Tp* operator->() const { return obj_ptr_; }
+        private:
+            friend class LockBox;
 
-		_Tp& operator*() { return *obj_ptr_; }
+            explicit LockProxy(LockBox& box) : lock_(box.mtx_), obj_(&box.obj_) {}
 
-		const _Tp& operator*() const { return *obj_ptr_; }
-	};
+            std::unique_lock<std::mutex> lock_;
+            T* obj_ = nullptr;
+        };
 
-	LockBox() = default;
+        LockBox() = default;
 
-	template <typename... Args>
-	LockBox(Args&& ...args) : obj_(std::forward<Args>(args)...) {}
+        template <typename... Args> requires (sizeof...(Args) > 0 && std::constructible_from<T, Args...>)
+        explicit LockBox(Args&&... args) : obj_(std::forward<Args>(args)...) {}
 
-	LockBox(const LockBox&) = delete;
-	LockBox(LockBox&&) = delete;
-	LockBox& operator=(const LockBox&) = delete;
-	LockBox& operator=(LockBox&&) = delete;
+        LockBox(const LockBox&) = delete;
+        LockBox(LockBox&&) = delete;
+        LockBox& operator=(const LockBox&) = delete;
+        LockBox& operator=(LockBox&&) = delete;
 
-	[[nodiscard]] LockBox<_Tp>::LockProxy AcquireLock() {
-		return LockProxy(this);
-	}
-};
+        [[nodiscard]] LockProxy acquire_lock() {
+            return LockProxy(*this);
+        }
 
-template <typename _Tp>
-using LockGuard = typename LockBox<_Tp>::LockProxy;
+    private:
+        std::mutex mtx_;
+        T obj_;
+    };
 
-}
+    template <typename T>
+    using LockGuard = typename LockBox<T>::LockProxy;
+
+} // namespace aop
 
 #endif // !_AOP_HPP

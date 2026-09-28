@@ -3,20 +3,20 @@
 
 #pragma once
 
+#include <chrono>
 #include <exception>
-#include <string>
 #include <map>
 #include <memory>
-#include <utility>
-#include <vector>
-#include <thread>
-#include <chrono>
 #include <mutex>
 #include <stop_token>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
 
 namespace shared_data {
 
-std::stop_source sts_;
+    std::stop_source sts_;
 
 }
 
