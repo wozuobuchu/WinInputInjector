@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <cwchar>
 #include <exception>
 #include <format>
 #include <fstream>
@@ -59,11 +60,8 @@ namespace ui {
         if (!g_hwndIntervalInput) return 0;
         wchar_t buf[32] = {0};
         GetWindowTextW(g_hwndIntervalInput, buf, 32);
-        try {
-            return std::clamp(std::stoi(buf), 0, 1000000);
-        } catch (...) {
-            return 0;
-        }
+        // wcstoll saturates on overflow, so oversized values still reach the clamp.
+        return static_cast<int>(std::clamp(std::wcstoll(buf, nullptr, 10), 0LL, 1000000LL));
     }
 
     inline void SetProgress(int percent) {
