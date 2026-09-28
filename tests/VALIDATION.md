@@ -1,5 +1,49 @@
 # Validation
 
+## Single-row footer without Clear — 2026-09-28
+
+- Debug x64 and Release x64 application builds, injection regression tests, and
+  updated native UI tests passed. The Debug UI test retains the previously noted
+  C4702 warning in `inject_thread.hpp`.
+- UI tests cover every short caption, zero/partial failures with and without an
+  error code, two-line details, collapse on a new running state, anchored progress,
+  tooltip registration/content, font sizes, and 100000-unit source text at
+  96/120/144/192 DPI and minimum/default/large/restored sizes. These DPI changes
+  are synthetic; physical cross-monitor movement was not tested.
+- Live default, 720x480 minimum, maximized, and restored layouts were inspected.
+  No Clear control remains; the right-aligned status shares the parameter row.
+  The README screenshot shows the new default empty window.
+- Live Tab and Shift+Tab wrap between text/gap/chunk; gap 0 skips Chunk. Enter
+  inserts a newline without sending, and Ctrl+A/Delete clears the source while
+  retaining the latest status. Hover help was inspected on disabled Chunk and
+  on running/completed status, including the target-not-verified explanation.
+- F2 with empty text displays "No text". A 300-unit Chinese/English/emoji sample
+  matched exactly in the app's EDIT control after a paced send. Another F2 during
+  that run did not restart it; the live percentage advanced to "Sent to Windows".
+- Failure/cancellation presentation was checked through test-owned reports and
+  controls; no external target failure was deliberately induced.
+
+## Compact native UI — 2026-09-28
+
+- Debug x64 and Release x64 application builds, existing injection recorder tests,
+  and the new native UI layout checks passed. The Debug UI test build reports an
+  existing C4702 warning in `inject_thread.hpp`; application builds succeeded.
+- Actual default, minimum 720x480, maximized, and restored windows were inspected.
+  Parameters and Clear fit on one row. The right-aligned hint repaints correctly
+  when shrinking; there is no mode selector or send button.
+- Live checks passed for Tab/Shift+Tab, skipping disabled chunk at gap 0, Enter
+  inserting a newline without starting injection, Clear, and chunk correction
+  from 99999 to 32768 on focus loss. Defaults remain 1000 us and 128.
+- Empty F2 showed "No text to send." A controlled 300-unit Chinese/English/emoji
+  sample sent into the app's EDIT control matched in full after completion.
+  F2 pressed again during this paced run did not restart or duplicate the text.
+- UI tests cover 100000-unit source text, zero-gap disabling, numeric correction,
+  font sizes and control bounds at 96/120/144/192 DPI, and full two-line rendering
+  of running/completed/cancelled/maximum-length failure messages. DPI changes are
+  synthetic messages to a test-owned window, not physical cross-monitor testing.
+- The README screenshot was captured from the new native window. No browser or
+  third-party target verification was added; sender semantics remain unchanged.
+
 ## Adjustable chunks — 2026-09-28
 
 - Debug x64 and Release x64 application builds and recorder tests passed.

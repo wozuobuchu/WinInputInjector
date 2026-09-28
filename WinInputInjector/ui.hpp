@@ -20,6 +20,58 @@ name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 namespace ui {
+    struct StatusPresentation {
+        InjectionStatus kind = InjectionStatus::Idle;
+        std::wstring text = L"Ready";
+        std::wstring tooltip = L"Focus the target input, then press F2. Sending to Windows does not verify the target text.";
+        std::wstring detail;
+        int percent = 0;
+    };
+    inline StatusPresentation g_status;
+    inline std::wstring g_runningTooltip;
+    inline constexpr wchar_t GAP_TOOLTIP[] = L"Gap between completed batches: 0-1000000 us. Default: 1000 us (1 ms).\n0 sends the full text in one batch and ignores Chunk.";
+    inline constexpr wchar_t CHUNK_TOOLTIP[] = L"Characters per batch: 1-32768. Default: 128. A UTF-16 surrogate pair counts as one character.\nIgnored when Gap is 0.";
+    inline void UpdateLayout(HWND hwnd);
+
+    inline int Scale(int value) { return MulDiv(value, static_cast<int>(g_dpi), USER_DEFAULT_SCREEN_DPI); }
+
+    inline int StatusHeight() {
+        // Font line boxes do not scale to exact integer multiples at fractional DPI.
+        const HDC dc = GetDC(g_hwndStatusDetail);
+        const HGDIOBJ previous = SelectObject(dc, g_hStatusFont);
+        TEXTMETRICW metrics{};
+        const bool measured = GetTextMetricsW(dc, &metrics) != FALSE;
+        SelectObject(dc, previous);
+        ReleaseDC(g_hwndStatusDetail, dc);
+        return UI_STATUS_LINES * (measured ? metrics.tmHeight : Scale(UI_STATUS_FONT_HEIGHT + UI_GAP));
+    }
+
+    inline void UpdateFonts() {
+        const HFONT previous = g_hFont;
+        const HFONT previous_input = g_hInputFont;
+        const HFONT previous_status = g_hStatusFont;
+        g_hFont = CreateFontW(-Scale(UI_FONT_HEIGHT), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+            DEFAULT_PITCH, L"Segoe UI");
+        g_hInputFont = CreateFontW(-Scale(UI_FONT_HEIGHT), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+            FIXED_PITCH, L"Consolas");
+        g_hStatusFont = CreateFontW(-Scale(UI_STATUS_FONT_HEIGHT), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+            DEFAULT_PITCH, L"Segoe UI");
+        for (HWND control : {g_hwndTextLabel, g_hwndHint, g_hwndIntervalLabel,
+            g_hwndIntervalInput, g_hwndChunkLabel, g_hwndChunkInput}) {
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(g_hFont), TRUE);
+        }
+        SendMessageW(g_hwndInput, WM_SETFONT, reinterpret_cast<WPARAM>(g_hInputFont), TRUE);
+        for (HWND control : {g_hwndStatus, g_hwndStatusDetail, g_hwndTooltip})
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(g_hStatusFont), TRUE);
+        SendMessageW(g_hwndTooltip, TTM_SETMAXTIPWIDTH, 0, Scale(420));
+        if (previous) DeleteObject(previous);
+        if (previous_input) DeleteObject(previous_input);
+        if (previous_status) DeleteObject(previous_status);
+    }
+
     inline std::wstring GetInputText() {
         if (!g_hwndInput) return L"";
         int len = GetWindowTextLengthW(g_hwndInput);
@@ -29,21 +81,27 @@ namespace ui {
         return buf;
     }
 
-    enum class InputMode : int {
-        SendUnicodeInput = 0,
-        SimulateKeyboard = 1,
-    };
-    inline int GetSelectedMode() {
-        if (!g_hwndMode) return 0;
-        return (int)SendMessageW(g_hwndMode, CB_GETCURSEL, 0, 0);
-    }
-
     inline int GetInterval() {
         if (!g_hwndIntervalInput) return DEFAULT_INTERVAL_US;
         wchar_t buf[32] = {0};
         GetWindowTextW(g_hwndIntervalInput, buf, 32);
         // wcstoll saturates on overflow, so oversized values still reach the clamp.
         return static_cast<int>(std::clamp(std::wcstoll(buf, nullptr, 10), 0LL, 1000000LL));
+    }
+
+    inline void MoveTabFocus(HWND hwnd, bool previous) {
+        // Multiline EDIT requests all keys, so IsDialogMessage alone eats Tab.
+        const HWND next = GetNextDlgTabItem(hwnd, GetFocus(), previous);
+        if (!next) return;
+        SetFocus(next);
+        if (next == g_hwndIntervalInput || next == g_hwndChunkInput)
+            SendMessageW(next, EM_SETSEL, 0, -1);
+    }
+
+    inline int NormalizeInterval() {
+        const int interval = GetInterval();
+        SetWindowTextW(g_hwndIntervalInput, std::to_wstring(interval).c_str());
+        return interval;
     }
 
     inline void SetProgress(int percent) {
@@ -68,56 +126,80 @@ namespace ui {
         EnableWindow(g_hwndChunkLabel, enabled);
     }
 
-    inline VOID CALLBACK ProgressTimerProc(HWND, UINT, UINT_PTR, DWORD) {
-        SetProgress(static_cast<int>(InjectThread::get_progress()));
+    inline StatusPresentation ResultStatus(const InjectionReport& report, int percent) {
+        StatusPresentation result;
+        result.kind = report.status;
+        result.percent = std::clamp(percent, 0, 100);
+        const std::wstring position = std::to_wstring(report.completed_units) + L"/" +
+            std::to_wstring(report.total_units) + L" UTF-16 units";
+        const std::wstring suffix = L" \u00b7 " + std::to_wstring(result.percent) + L"%";
+        switch (report.status) {
+            case InjectionStatus::Running:
+                result.text = L"Sending" + suffix;
+                result.tooltip = g_runningTooltip;
+                break;
+            case InjectionStatus::Completed:
+                result.text = report.total_units == 0 ? L"No text" : L"Sent to Windows";
+                result.tooltip = report.total_units == 0 ? L"No text to send." :
+                    L"Sent " + position + L" to Windows. Target text has not been verified.";
+                break;
+            case InjectionStatus::Cancelled:
+                result.text = L"Cancelled" + suffix;
+                result.tooltip = L"Cancelled after " + position + L". Target text has not been verified.";
+                break;
+            case InjectionStatus::Failed:
+                result.text = L"Failed" + suffix;
+                result.detail = L"Sent " + position + L"; last send " +
+                    std::to_wstring(report.last_send.sent_events) + L"/" +
+                    std::to_wstring(report.last_send.requested_events) + L" events.\n" +
+                    (report.last_send.error_code ? L"Error " + std::to_wstring(report.last_send.error_code) + L"." :
+                        L"Windows provided no error code.");
+                result.tooltip = result.detail + L"\nStopped without retrying. Target text has not been verified.";
+                break;
+            default:
+                break;
+        }
+        return result;
+    }
+
+    inline void SetStatus(HWND hwnd, const StatusPresentation& status) {
+        const bool layout_changed = g_status.detail.empty() != status.detail.empty();
+        if (g_status.tooltip != status.tooltip) SendMessageW(g_hwndTooltip, TTM_POP, 0, 0);
+        if (g_status.text != status.text) SetWindowTextW(g_hwndStatus, status.text.c_str());
+        if (g_status.detail != status.detail) SetWindowTextW(g_hwndStatusDetail, status.detail.c_str());
+        g_status = status;
+        SetProgress(status.percent);
+        ShowWindow(g_hwndStatusDetail, status.detail.empty() ? SW_HIDE : SW_SHOWNA);
+        InvalidateRect(g_hwndStatus, nullptr, TRUE);
+        if (layout_changed) UpdateLayout(hwnd);
+    }
+
+    inline VOID CALLBACK ProgressTimerProc(HWND hwnd, UINT, UINT_PTR, DWORD) {
+        if (g_status.kind == InjectionStatus::Running)
+            SetStatus(hwnd, ResultStatus({InjectionStatus::Running}, static_cast<int>(InjectThread::get_progress())));
     }
 
     inline VOID CALLBACK CheckReadyTimerProc(HWND hwnd, UINT, UINT_PTR, DWORD) {
         if (InjectThread::check_ready()) {
             KillTimer(hwnd, 1);
             KillTimer(hwnd, 2);
-            SetProgress(static_cast<int>(InjectThread::get_progress()));
-            EnableWindow(g_hwndSubmit, TRUE);
-            const auto report = InjectThread::get_report();
-            std::wstring status;
-            switch (report.status) {
-                case InjectionStatus::Completed:
-                    status = report.total_units == 0 ? L"No text to send." :
-                        L"Sent to Windows; target text has not been verified.";
-                    break;
-                case InjectionStatus::Cancelled:
-                    status = L"Cancelled after " + std::to_wstring(report.completed_units) + L"/" +
-                        std::to_wstring(report.total_units) + L" UTF-16 units.";
-                    break;
-                case InjectionStatus::Failed:
-                    status = L"Failed after " + std::to_wstring(report.completed_units) + L"/" +
-                        std::to_wstring(report.total_units) + L" units; last send " +
-                        std::to_wstring(report.last_send.sent_events) + L"/" +
-                        std::to_wstring(report.last_send.requested_events) + L" events. " +
-                        (report.last_send.error_code ? L"Error " + std::to_wstring(report.last_send.error_code) :
-                            L"Windows provided no error code.");
-                    break;
-                default:
-                    break;
-            }
-            SetWindowTextW(g_hwndStatus, status.c_str());
+            SetStatus(hwnd, ResultStatus(InjectThread::get_report(), static_cast<int>(InjectThread::get_progress())));
         }
     }
 
-    inline void SubmitInjection(HWND hwnd) {
+    inline void StartInjection(HWND hwnd) {
         if (InjectThread::check_ready()) {
             InjectThread::set_input_text(GetInputText());
-            const int interval = GetInterval();
+            const int interval = NormalizeInterval();
             // A disabled chunk value is retained verbatim while zero interval ignores it.
             const int chunk_size = interval > 0 ? NormalizeChunkSize() : injection_settings::DEFAULT_CHUNK_SIZE;
-            if (InjectThread::launch_injection(GetSelectedMode(), interval, chunk_size)) {
-                SetProgress(0);
-                const std::wstring status = interval == 0 ?
+            if (InjectThread::launch_injection(UNICODE_INPUT_MODE, interval, chunk_size)) {
+                g_runningTooltip = interval == 0 ?
                     L"Sending in one batch (0 us); target may miss characters." :
                     L"Sending up to " + std::to_wstring(chunk_size) + L" characters per chunk; gap " +
                         std::to_wstring(interval) + L" us.";
-                SetWindowTextW(g_hwndStatus, status.c_str());
-                EnableWindow(g_hwndSubmit, FALSE);
+                g_runningTooltip += L" Sending to Windows does not verify the target text.";
+                SetStatus(hwnd, ResultStatus({InjectionStatus::Running}, 0));
                 SetTimer(hwnd, 1, 50, ProgressTimerProc);
                 SetTimer(hwnd, 2, 200, CheckReadyTimerProc);
             }
@@ -130,10 +212,46 @@ namespace ui {
         for (size_t i = 0; i < count; ++i) {
             const auto& ev = ev_buffer[i];
             if (ev.vkey == VK_F2 && ev.down == 1) {
-                SubmitInjection(hwnd);
+                StartInjection(hwnd);
                 break;
             }
         }
+    }
+
+    inline void CreateTooltips(HWND hwnd) {
+        g_hwndTooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT, CW_USEDEFAULT,
+            CW_USEDEFAULT, CW_USEDEFAULT, hwnd, nullptr, nullptr, nullptr);
+        // Child tools cover enabled edits/status; parent rectangles also cover
+        // static labels and the disabled Chunk edit, which cannot receive mouse input.
+        for (HWND control : {g_hwndIntervalInput, g_hwndChunkInput, g_hwndStatus}) {
+            TOOLINFOW tool{sizeof(tool)};
+            tool.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+            tool.hwnd = hwnd;
+            tool.uId = reinterpret_cast<UINT_PTR>(control);
+            tool.lpszText = LPSTR_TEXTCALLBACKW;
+            SendMessageW(g_hwndTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+        }
+        for (UINT_PTR id : {1u, 2u}) {
+            TOOLINFOW tool{sizeof(tool)};
+            tool.uFlags = TTF_SUBCLASS;
+            tool.hwnd = hwnd;
+            tool.uId = id;
+            tool.lpszText = LPSTR_TEXTCALLBACKW;
+            SendMessageW(g_hwndTooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+        }
+    }
+
+    inline void UpdateTooltipRect(HWND hwnd, UINT_PTR id, HWND label, HWND input) {
+        TOOLINFOW tool{sizeof(tool)};
+        tool.hwnd = hwnd;
+        tool.uId = id;
+        RECT input_rect{};
+        GetWindowRect(label, &tool.rect);
+        GetWindowRect(input, &input_rect);
+        tool.rect.right = input_rect.right;
+        MapWindowPoints(HWND_DESKTOP, hwnd, reinterpret_cast<POINT*>(&tool.rect), 2);
+        SendMessageW(g_hwndTooltip, TTM_NEWTOOLRECTW, 0, reinterpret_cast<LPARAM>(&tool));
     }
 
     inline void UpdateLayout(HWND hwnd) {
@@ -142,44 +260,38 @@ namespace ui {
         int width = rc.right - rc.left;
         int height = rc.bottom - rc.top;
 
-        int margin = 20;
-        int progressHeight = 25;
-        int buttonHeight = 35;
-        int controlGap = 10;
+        const int margin = Scale(UI_MARGIN);
+        const int gap = Scale(UI_GAP);
+        const int contentWidth = width - 2 * margin;
+        const int controlHeight = Scale(UI_CONTROL_HEIGHT);
+        const int numberWidth = Scale(UI_NUMBER_WIDTH);
+        const int progressY = height - margin - Scale(UI_PROGRESS_HEIGHT);
+        const int detailHeight = g_status.detail.empty() ? 0 : StatusHeight();
+        const int detailY = progressY - gap - detailHeight;
+        const int toolbarY = progressY - gap - controlHeight - (detailHeight ? detailHeight + gap : 0);
+        const int inputY = margin + Scale(UI_HEADER_HEIGHT) + gap;
 
-        MoveWindow(g_hwndProgress, margin, height - margin - progressHeight, width - 2 * margin, progressHeight, TRUE);
+        const int hintOffset = Scale(UI_TEXT_LABEL_WIDTH) + gap;
+        MoveWindow(g_hwndTextLabel, margin, margin, Scale(UI_TEXT_LABEL_WIDTH), Scale(UI_HEADER_HEIGHT), TRUE);
+        MoveWindow(g_hwndHint, margin + hintOffset, margin, contentWidth - hintOffset, Scale(UI_HEADER_HEIGHT), TRUE);
+        MoveWindow(g_hwndInput, margin, inputY, contentWidth, (std::max)(0, toolbarY - gap - inputY), TRUE);
 
-        int statusHeight = 44; // Allow long failure details to wrap at the minimum window width.
-        int statusY = height - margin - progressHeight - statusHeight - controlGap;
-        MoveWindow(g_hwndStatus, margin, statusY, width - 2 * margin, statusHeight, TRUE);
-        int bottomRowY = statusY - controlGap - buttonHeight;
-        int parameterRowY = bottomRowY - controlGap - buttonHeight;
-
-        int comboWidth = 150;
-        MoveWindow(g_hwndMode, margin, parameterRowY + (buttonHeight - 30) / 2, comboWidth, 200, TRUE);
-
-        int labelWidth = 130;
-        int intervalWidth = 70;
-        int currentX = margin + comboWidth + controlGap;
-
-        MoveWindow(g_hwndIntervalLabel, currentX, parameterRowY, labelWidth, buttonHeight, TRUE);
-        currentX += labelWidth + (controlGap / 2);
-
-        MoveWindow(g_hwndIntervalInput, currentX, parameterRowY + (buttonHeight - 30) / 2, intervalWidth, 30, TRUE);
-        currentX += intervalWidth + controlGap;
-        MoveWindow(g_hwndChunkLabel, currentX, parameterRowY, 100, buttonHeight, TRUE);
-        currentX += 105;
-        MoveWindow(g_hwndChunkInput, currentX, parameterRowY + (buttonHeight - 30) / 2, 80, 30, TRUE);
-
-        int buttonWidth = 100;
-        MoveWindow(g_hwndSubmit, width - margin - buttonWidth * 2 - controlGap, bottomRowY, buttonWidth, buttonHeight, TRUE);
-        MoveWindow(g_hwndClear, width - margin - buttonWidth, bottomRowY, buttonWidth, buttonHeight, TRUE);
-
-        int inputHeight = parameterRowY - margin - margin;
-        if (inputHeight < 0) inputHeight = 0;
-        MoveWindow(g_hwndInput, margin, margin, width - 2 * margin, inputHeight, TRUE);
-
-        InvalidateRect(hwnd, NULL, TRUE);
+        int x = margin;
+        MoveWindow(g_hwndIntervalLabel, x, toolbarY, Scale(UI_GAP_LABEL_WIDTH), controlHeight, TRUE);
+        x += Scale(UI_GAP_LABEL_WIDTH) + gap;
+        MoveWindow(g_hwndIntervalInput, x, toolbarY, numberWidth, controlHeight, TRUE);
+        x += numberWidth + gap;
+        MoveWindow(g_hwndChunkLabel, x, toolbarY, Scale(UI_CHUNK_LABEL_WIDTH), controlHeight, TRUE);
+        x += Scale(UI_CHUNK_LABEL_WIDTH) + gap;
+        MoveWindow(g_hwndChunkInput, x, toolbarY, numberWidth, controlHeight, TRUE);
+        x += numberWidth + gap;
+        MoveWindow(g_hwndStatus, x, toolbarY, width - margin - x, controlHeight, TRUE);
+        MoveWindow(g_hwndStatusDetail, margin, detailY, contentWidth, detailHeight, TRUE);
+        MoveWindow(g_hwndProgress, margin, progressY, contentWidth, Scale(UI_PROGRESS_HEIGHT), TRUE);
+        UpdateTooltipRect(hwnd, 1, g_hwndIntervalLabel, g_hwndIntervalInput);
+        UpdateTooltipRect(hwnd, 2, g_hwndChunkLabel, g_hwndChunkInput);
+        // Right-aligned and wrapped static text must repaint when shrinking too.
+        RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
 
     LRESULT CALLBACK windowproc_main(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -198,56 +310,57 @@ namespace ui {
 
             case WM_GETMINMAXINFO: {
                 LPMINMAXINFO lpMinMaxInfo = (LPMINMAXINFO)lParam;
-                lpMinMaxInfo->ptMinTrackSize.x = 720;
-                lpMinMaxInfo->ptMinTrackSize.y = 480;
+                lpMinMaxInfo->ptMinTrackSize.x = Scale(UI_MIN_WIDTH);
+                lpMinMaxInfo->ptMinTrackSize.y = Scale(UI_MIN_HEIGHT);
                 return 0;
             }
 
             case WM_CTLCOLORSTATIC: {
                 HDC hdc = (HDC)wParam;
                 HWND hwndCtrl = (HWND)lParam;
-                if (hwndCtrl == g_hwndIntervalLabel || hwndCtrl == g_hwndStatus || hwndCtrl == g_hwndChunkLabel) {
+                if (hwndCtrl == g_hwndIntervalLabel || hwndCtrl == g_hwndStatus || hwndCtrl == g_hwndChunkLabel ||
+                    hwndCtrl == g_hwndTextLabel || hwndCtrl == g_hwndHint || hwndCtrl == g_hwndStatusDetail) {
                     SetBkMode(hdc, TRANSPARENT);
+                    if (hwndCtrl == g_hwndStatus)
+                        SetTextColor(hdc, GetSysColor(g_status.kind == InjectionStatus::Failed ? COLOR_WINDOWTEXT : COLOR_GRAYTEXT));
                     return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
                 }
                 break;
             }
 
             case WM_CREATE: {
-                g_hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
-
-                g_hwndInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"Your text, press F2 to submit...", WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INPUT, NULL, NULL);
+                g_dpi = GetDpiForWindow(hwnd);
+                g_hwndTextLabel = CreateWindowExW(0, L"STATIC", L"Text \u00b7 Unicode", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_TEXT_LABEL, NULL, NULL);
+                g_hwndHint = CreateWindowExW(0, L"STATIC", L"Focus target window, then press F2", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_HINT, NULL, NULL);
+                g_hwndInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_HSCROLL |
+                    ES_MULTILINE | ES_WANTRETURN | ES_AUTOVSCROLL | ES_AUTOHSCROLL,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_INPUT, NULL, NULL);
                 SendMessageW(g_hwndInput, EM_SETLIMITTEXT, INPUT_TEXT_LIMIT, 0);
 
-                g_hwndMode = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_MODE, NULL, NULL);
-                SendMessageW(g_hwndMode, CB_ADDSTRING, 0, (LPARAM)L"SendUnicodeInput");
-                // SendMessageW(g_hwndMode, CB_ADDSTRING, 0, (LPARAM)L"SimulateKeyboard");
-                SendMessageW(g_hwndMode, CB_SETCURSEL, 0, 0);
-
-                g_hwndSubmit = CreateWindowExW(0, L"BUTTON", L"Submit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)IDC_SUBMIT, NULL, NULL);
-
-                g_hwndClear = CreateWindowExW(0, L"BUTTON", L"Clear", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, hwnd, (HMENU)IDC_CLEAR, NULL, NULL);
-
-                g_hwndProgress = CreateWindowExW(0, PROGRESS_CLASSW, L"", WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 0, 0, 0, 0, hwnd, (HMENU)IDC_PROGRESS, NULL, NULL);
-
-                g_hwndIntervalLabel = CreateWindowExW(0, L"STATIC", L"Batch gap (us):", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_LABEL, NULL, NULL);
-                g_hwndIntervalInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::to_wstring(DEFAULT_INTERVAL_US).c_str(), WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_INPUT, NULL, NULL);
-                g_hwndChunkLabel = CreateWindowExW(0, L"STATIC", L"Chunk size:", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT, 0, 0, 0, 0, hwnd, (HMENU)IDC_CHUNK_LABEL, NULL, NULL);
-                g_hwndChunkInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::to_wstring(injection_settings::DEFAULT_CHUNK_SIZE).c_str(), WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_CHUNK_INPUT, NULL, NULL);
+                // Creation order defines Tab: text -> gap -> chunk -> text.
+                g_hwndIntervalLabel = CreateWindowExW(0, L"STATIC", L"Gap (us)", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_LABEL, NULL, NULL);
+                g_hwndIntervalInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::to_wstring(DEFAULT_INTERVAL_US).c_str(),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_AUTOHSCROLL,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_INPUT, NULL, NULL);
+                g_hwndChunkLabel = CreateWindowExW(0, L"STATIC", L"Chunk", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_CHUNK_LABEL, NULL, NULL);
+                g_hwndChunkInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::to_wstring(injection_settings::DEFAULT_CHUNK_SIZE).c_str(),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_NUMBER | ES_AUTOHSCROLL,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_CHUNK_INPUT, NULL, NULL);
                 SendMessageW(g_hwndChunkInput, EM_SETLIMITTEXT, 32, 0);
-                g_hwndStatus = CreateWindowExW(0, L"STATIC", L"Chunk: 1-32768 characters. Batch gap 0 = full text; chunk size ignored.", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, hwnd, (HMENU)IDC_STATUS, NULL, NULL);
-
-                SendMessageW(g_hwndInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndMode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndSubmit, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndClear, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndIntervalLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndIntervalInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndStatus, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndChunkLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-                SendMessageW(g_hwndChunkInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+                g_status = {};
+                g_hwndStatus = CreateWindowExW(0, L"STATIC", L"Ready", WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE | SS_NOTIFY,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_STATUS, NULL, NULL);
+                g_hwndStatusDetail = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_LEFT | SS_NOPREFIX,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_STATUS_DETAIL, NULL, NULL);
+                g_hwndProgress = CreateWindowExW(0, PROGRESS_CLASSW, L"", WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
+                    0, 0, 0, 0, hwnd, (HMENU)IDC_PROGRESS, NULL, NULL);
+                CreateTooltips(hwnd);
+                UpdateFonts();
                 UpdateChunkEnabled();
-
                 SetTimer(hwnd, 3, 10, KeyboardTimerProc);
 
                 return 0;
@@ -258,22 +371,13 @@ namespace ui {
                 switch (cmd) {
                     case IDC_INTERVAL_INPUT: {
                         if (HIWORD(wParam) == EN_CHANGE) UpdateChunkEnabled();
+                        if (HIWORD(wParam) == EN_KILLFOCUS) NormalizeInterval();
                         break;
                     }
                     case IDC_CHUNK_INPUT: {
                         if (HIWORD(wParam) == EN_KILLFOCUS) NormalizeChunkSize();
                         break;
                     }
-                    case IDC_CLEAR: {
-                        SetWindowTextW(g_hwndInput, L"");
-                        break;
-                    }
-
-                    case IDC_SUBMIT: {
-                        SubmitInjection(hwnd);
-                        break;
-                    }
-
                     default: {
                         break;
                     }
@@ -281,8 +385,33 @@ namespace ui {
                 return 0;
             }
 
+            case WM_NOTIFY: {
+                const auto* header = reinterpret_cast<NMHDR*>(lParam);
+                if (header->hwndFrom == g_hwndTooltip && header->code == TTN_GETDISPINFOW) {
+                    auto* info = reinterpret_cast<NMTTDISPINFOW*>(lParam);
+                    const UINT_PTR id = header->idFrom;
+                    const wchar_t* text = g_status.tooltip.c_str();
+                    if (id == 1 || id == reinterpret_cast<UINT_PTR>(g_hwndIntervalInput)) text = GAP_TOOLTIP;
+                    if (id == 2 || id == reinterpret_cast<UINT_PTR>(g_hwndChunkInput)) text = CHUNK_TOOLTIP;
+                    info->lpszText = const_cast<wchar_t*>(text);
+                    return 0;
+                }
+                break;
+            }
+
             case WM_ENTERSIZEMOVE: {
                 inSizeMove = true;
+                return 0;
+            }
+
+            case WM_DPICHANGED: {
+                g_dpi = HIWORD(wParam);
+                UpdateFonts();
+                const RECT& suggested = *reinterpret_cast<const RECT*>(lParam);
+                SetWindowPos(hwnd, nullptr, suggested.left, suggested.top,
+                    suggested.right - suggested.left, suggested.bottom - suggested.top,
+                    SWP_NOACTIVATE | SWP_NOZORDER);
+                UpdateLayout(hwnd);
                 return 0;
             }
 
@@ -302,6 +431,9 @@ namespace ui {
 
             case WM_DESTROY: {
                 if (g_hFont) DeleteObject(g_hFont);
+                if (g_hInputFont) DeleteObject(g_hInputFont);
+                if (g_hStatusFont) DeleteObject(g_hStatusFont);
+                g_hFont = g_hInputFont = g_hStatusFont = nullptr;
                 PostQuitMessage(0);
                 shared_data::sts_.request_stop();
                 return 0;
@@ -336,13 +468,14 @@ namespace ui {
             return nullptr;
         }
 
+        g_dpi = GetDpiForSystem();
         HWND hwnd = CreateWindowEx(
-            WS_EX_CLIENTEDGE,
+            0,
             wndclass_main.lpszClassName,
             TEXT("WinInputInjector"),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT, CW_USEDEFAULT,
-            UI_WIDTH, UI_HEIGHT,
+            Scale(UI_WIDTH), Scale(UI_HEIGHT),
             NULL,
             NULL,
             hInstance,

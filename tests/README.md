@@ -7,6 +7,10 @@ msbuild tests/injection_tests.vcxproj /p:Configuration=Debug /p:Platform=x64
 ./x64/Tests/Debug/injection_tests.exe
 msbuild tests/injection_tests.vcxproj /p:Configuration=Release /p:Platform=x64
 ./x64/Tests/Release/injection_tests.exe
+msbuild tests/ui_layout_tests.vcxproj /p:Configuration=Debug /p:Platform=x64
+./x64/UiTests/Debug/ui_layout_tests.exe
+msbuild tests/ui_layout_tests.vcxproj /p:Configuration=Release /p:Platform=x64
+./x64/UiTests/Release/ui_layout_tests.exe
 ```
 
 The tests replace `SendInput` with a recorder. They check exact Unicode event order,
@@ -14,6 +18,13 @@ surrogate boundaries, 100,000-unit input, one-call zero interval, short sends wi
 and without an error code, no retry, progress, cancellation during waits, and
 minimum gaps measured from send completion (including slow sends).
 They never inject input into another application.
+
+The UI checks require the same Boost include setup as the application. They create
+an unshown native window and deliver synthetic DPI changes at 96, 120, 144, and
+192 DPI. They check control bounds at minimum/default/large/restored sizes, font
+scaling, short status captions, two-line failure details, expansion/collapse,
+tooltip contents, 100,000-unit source text, numeric correction, and disabled chunk
+state. This does not replace a physical cross-monitor DPI test.
 
 Chunk coverage includes parsing/defaults/clamping (1-32768, default 128), every
 zero-interval setting taking one call, full and short final batches, intact
@@ -35,5 +46,10 @@ For chunk comparisons, keep the batch gap at 1000 us and test chunk sizes 1 and
 128 on the same sample. Wait for both the completion status and the received text
 to settle. Also check the default 128, empty input reverting to 128, values above
 32768 clamping on focus loss, and the chunk field being disabled (with its value
-retained) at gap 0. At the minimum 720x480 window size, the parameter row and
-button row should remain separate without overlapping or clipping.
+retained) at gap 0. At the minimum 720x480 window size, parameters and the short
+status should fit on one row without overlap or clipping. Failure details expand
+below this row and collapse on the next run. Check maximize/restore, Tab and
+Shift+Tab cycling between text/gap/chunk (skipping disabled chunk), Enter inserting
+a newline, Ctrl+A/Delete clearing the text, and F2 as the only send entry point.
+Repeated F2 during a task must not restart it. Hover over each parameter and the
+status; parameter help must also work while Chunk is disabled.
