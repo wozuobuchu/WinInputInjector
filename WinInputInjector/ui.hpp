@@ -2,33 +2,15 @@
 #define _UI_HPP_
 
 #include "resource.hpp"
-#include <CommCtrl.h>
 #include <Windows.h>
-#include <commdlg.h>
+#include <CommCtrl.h>
 
 #include <algorithm>
-#include <atomic>
-#include <chrono>
-#include <cmath>
-#include <cstring>
 #include <cwchar>
-#include <exception>
-#include <format>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <memory>
-#include <mutex>
-#include <shared_mutex>
-#include <sstream>
-#include <stop_token>
 #include <string>
-#include <thread>
-#include <vector>
 
 #include "header.hpp"
 
-#include "low_latency_keyboard.hpp"
 #include "ui_constants.hpp"
 
 #pragma comment(lib, "Comctl32.lib")
@@ -70,22 +52,11 @@ namespace ui {
         SendMessageW(g_hwndProgress, PBM_SETPOS, percent, 0);
     }
 
-    struct RegisterReturn {
-        WNDCLASSEX* wndclass;
-        HWND hwnd;
-    };
-
-    inline VOID CALLBACK ProgressTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
-        (void)uMsg;
-        (void)idEvent;
-        (void)dwTime;
+    inline VOID CALLBACK ProgressTimerProc(HWND, UINT, UINT_PTR, DWORD) {
         SetProgress(static_cast<int>(InjectThread::get_progress()));
     }
 
-    inline VOID CALLBACK CheckReadyTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
-        (void)uMsg;
-        (void)idEvent;
-        (void)dwTime;
+    inline VOID CALLBACK CheckReadyTimerProc(HWND hwnd, UINT, UINT_PTR, DWORD) {
         if (InjectThread::check_ready()) {
             KillTimer(hwnd, 1);
             KillTimer(hwnd, 2);
@@ -105,10 +76,7 @@ namespace ui {
         }
     }
 
-    inline VOID CALLBACK KeyboardTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime) {
-        (void)uMsg;
-        (void)idEvent;
-        (void)dwTime;
+    inline VOID CALLBACK KeyboardTimerProc(HWND hwnd, UINT, UINT_PTR, DWORD) {
         static rawinput::LowLatencyKeyboard::KeyEvent ev_buffer[rawinput::LowLatencyKeyboard::kQueueCapacity];
         const size_t count = rawinput::LowLatencyKeyboard::pop_events(ev_buffer);
         for (size_t i = 0; i < count; ++i) {
@@ -274,45 +242,30 @@ namespace ui {
         return DefWindowProc(hwnd, uMsg, wParam, lParam);
     }
 
-    RegisterReturn register_main_ui(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nCmdShow) {
-        (void)hInstance;
-        (void)hPrevInstance;
-        (void)lpCmdLine;
-        (void)nCmdShow;
+    HWND register_main_ui(_In_ HINSTANCE hInstance) {
         (void)InjectThread::getInstance();
 
-        INITCOMMONCONTROLSEX icex;
-        icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-        icex.dwICC = ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES;
+        INITCOMMONCONTROLSEX icex{sizeof(INITCOMMONCONTROLSEX), ICC_PROGRESS_CLASS | ICC_STANDARD_CLASSES};
         InitCommonControlsEx(&icex);
 
-        WNDCLASSEX* wndclass_main = new WNDCLASSEX();
-        std::memset(wndclass_main, 0, sizeof(WNDCLASSEX));
+        WNDCLASSEX wndclass_main{};
+        wndclass_main.cbSize = sizeof(WNDCLASSEX);
+        wndclass_main.lpfnWndProc = windowproc_main;
+        wndclass_main.hInstance = hInstance;
+        wndclass_main.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_WININPUTINJECTOR));
+        wndclass_main.hCursor = LoadCursor(NULL, IDC_ARROW);
+        wndclass_main.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wndclass_main.lpszClassName = TEXT("MainUIWindowClass");
+        wndclass_main.hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
-        RegisterReturn ret;
-        std::memset(&ret, 0, sizeof(RegisterReturn));
-
-        wndclass_main->cbSize = sizeof(WNDCLASSEX);
-        wndclass_main->style = NULL;
-        wndclass_main->lpfnWndProc = windowproc_main;
-        wndclass_main->cbClsExtra = NULL;
-        wndclass_main->cbWndExtra = NULL;
-        wndclass_main->hInstance = hInstance;
-        wndclass_main->hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_WININPUTINJECTOR));
-        wndclass_main->hCursor = LoadCursor(NULL, IDC_ARROW);
-        wndclass_main->hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        wndclass_main->lpszMenuName = NULL;
-        wndclass_main->lpszClassName = TEXT("MainUIWindowClass");
-        wndclass_main->hIconSm = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_SMALL));
-
-        if (!RegisterClassEx(wndclass_main)) {
+        if (!RegisterClassEx(&wndclass_main)) {
             shared_data::sts_.request_stop();
-            return ret;
+            return nullptr;
         }
 
         HWND hwnd = CreateWindowEx(
             WS_EX_CLIENTEDGE,
-            wndclass_main->lpszClassName,
+            wndclass_main.lpszClassName,
             TEXT("WinInputInjector"),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT, CW_USEDEFAULT,
@@ -325,13 +278,10 @@ namespace ui {
 
         if (hwnd == NULL) {
             shared_data::sts_.request_stop();
-            return ret;
+            return nullptr;
         }
 
-        ret.wndclass = wndclass_main;
-        ret.hwnd = hwnd;
-
-        return ret;
+        return hwnd;
     }
 
 } // namespace ui

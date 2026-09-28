@@ -49,6 +49,8 @@
 ---
 
 ## Build / 编译
-- Requirements: **Visual Studio 2022** (or compatible) with C++ Desktop Development workload.
-- C++ Standard: **C++20** (for `<format>`, `<stop_token>`, etc.)
-- Platform Toolset: **v143** (or latest)
+- Requirements / 环境要求: **Visual Studio** with the **Desktop development with C++** workload, **MSVC v145**, and a **Windows 10/11 SDK**.
+- C++ Standard / 语言标准: **C++20** (for concepts and `<stop_token>`).
+- Platform / 平台: **x64 only / 仅支持 x64**; Debug and Release configurations are available. 32-bit and WOW64 targets are not supported.
+- Dependency / 依赖: **Boost** headers, including `<boost/lockfree/spsc_queue.hpp>`. Add the Boost root directory to the compiler's include paths; no compiled Boost library is required. 将 Boost 根目录加入编译器包含路径，无需链接 Boost 二进制库。
+- Build / 构建: Open `WinInputInjector.slnx` in Visual Studio and build **Debug | x64** or **Release | x64**. 打开解决方案并选择对应的 x64 配置构建。
