@@ -36,6 +36,11 @@ public:
         return ready_.load(std::memory_order_acquire);
     }
 
+    inline static bool check_ready(std::chrono::steady_clock::time_point received_at) {
+        // A queued hotkey from before the last completion must not start a new run.
+        return check_ready() && received_at > ready_since_.load(std::memory_order_relaxed);
+    }
+
     inline static InjectionReport get_report() {
         auto lock = report_.acquire_lock();
         return *lock;
@@ -62,6 +67,7 @@ public:
         } catch (...) {
             auto lock = report_.acquire_lock();
             *lock = {InjectionStatus::Failed, 0, 0, {0, 0, ERROR_NOT_ENOUGH_MEMORY}};
+            ready_since_.store(std::chrono::steady_clock::now(), std::memory_order_relaxed);
             ready_.store(true, std::memory_order_release);
         }
         return true;
@@ -122,6 +128,7 @@ private:
         if (result.status == InjectionStatus::Completed) {
             progress_.store(100, std::memory_order_relaxed);
         }
+        ready_since_.store(std::chrono::steady_clock::now(), std::memory_order_relaxed);
         ready_.store(true, std::memory_order_release);
     }
 
@@ -130,6 +137,7 @@ private:
 
     inline static std::atomic<int> progress_{0};
     inline static std::atomic<bool> ready_{true};
+    inline static std::atomic<std::chrono::steady_clock::time_point> ready_since_{};
     inline static std::thread worker_;
 
     InjectThread() = default;

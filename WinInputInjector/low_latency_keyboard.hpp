@@ -6,6 +6,7 @@
 #include <Windows.h>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <future>
 #include <thread>
@@ -24,6 +25,7 @@ namespace rawinput {
             uint16_t scancode = 0;
             uint16_t flags = 0;
             uint16_t down = 0;
+            std::chrono::steady_clock::time_point received_at{};
         };
 
         inline static constexpr size_t kQueueCapacity = 2048;
@@ -134,7 +136,8 @@ namespace rawinput {
                 vkey,
                 static_cast<uint16_t>(keyboard.MakeCode),
                 flags,
-                new_down
+                new_down,
+                std::chrono::steady_clock::now()
             };
 
             // A full queue drops the event, but key_down_ remains up to date.

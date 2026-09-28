@@ -211,7 +211,7 @@ namespace ui {
         const size_t count = rawinput::LowLatencyKeyboard::pop_events(ev_buffer);
         for (size_t i = 0; i < count; ++i) {
             const auto& ev = ev_buffer[i];
-            if (ev.vkey == VK_F2 && ev.down == 1) {
+            if (ev.vkey == VK_F2 && ev.down == 1 && InjectThread::check_ready(ev.received_at)) {
                 StartInjection(hwnd);
                 break;
             }
