@@ -25,6 +25,11 @@
 5. Switch to the target application (game or website) and select the input field.
 6. Press **F2** to start the injection.
 
+### Input Limit
+The text box accepts up to **100,000 UTF-16 code units**, including line breaks. Common Chinese characters and English letters each count as one unit; some emoji count as two or more units. Text typed or pasted beyond the limit will not be fully accepted; check the contents before submitting.
+
+Large texts may cause delays when pasting, editing, or processing input in the target application. An interval of `0` sends all input events in one batch, with the progress bar updating only when injection finishes; this does not guarantee that the target application has finished processing the text.
+
 ---
 
 ## 中文
@@ -45,6 +50,11 @@
 4. 如果目标程序对输入速度有限制，可以设置 **Interval (us)（间隔微秒）** 以减慢注入速度，防止字符丢失（例如：输入 `50000` 代表 50 毫秒）。设置为 `0` 则瞬时输入。
 5. 切换到目标应用程序（游戏或网页），并选中想要输入文字的输入框。
 6. 按下键盘上的 **F2** 键开始注入。
+
+### 输入限制
+文本框最多接受 **100,000 个 UTF-16 代码单元**，换行也计入限制。常见汉字和英文字母各占 1 个单元，部分 emoji 占 2 个或更多单元。超过上限的输入或粘贴内容无法完整保留，请在提交前检查文本。
+
+大文本在粘贴、编辑或目标程序处理输入时可能出现延迟。间隔设为 `0` 时会一次性发送全部输入事件，进度条仅在注入结束时更新；这不保证目标程序已经处理完全部文字。
 
 ---
 

@@ -161,6 +161,7 @@ namespace ui {
                 g_hFont = CreateFontW(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
 
                 g_hwndInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"Your text, press F2 to submit...", WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INPUT, NULL, NULL);
+                SendMessageW(g_hwndInput, EM_SETLIMITTEXT, INPUT_TEXT_LIMIT, 0);
 
                 g_hwndMode = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_MODE, NULL, NULL);
                 SendMessageW(g_hwndMode, CB_ADDSTRING, 0, (LPARAM)L"SendUnicodeInput");

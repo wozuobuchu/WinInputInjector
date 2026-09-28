@@ -8,6 +8,7 @@
 namespace ui {
     static inline constexpr int UI_WIDTH = 900;
     static inline constexpr int UI_HEIGHT = 600;
+    static inline constexpr int INPUT_TEXT_LIMIT = 100'000; // UTF-16 code units.
 
     static inline HWND g_hwndInput = NULL;
     static inline HWND g_hwndMode = NULL;
