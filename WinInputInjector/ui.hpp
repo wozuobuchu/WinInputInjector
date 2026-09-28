@@ -120,7 +120,46 @@ namespace ui {
         }
     }
 
+    inline void UpdateLayout(HWND hwnd) {
+        RECT rc;
+        if (!GetClientRect(hwnd, &rc) || IsIconic(hwnd)) return;
+        int width = rc.right - rc.left;
+        int height = rc.bottom - rc.top;
+
+        int margin = 20;
+        int progressHeight = 25;
+        int buttonHeight = 35;
+        int controlGap = 10;
+
+        MoveWindow(g_hwndProgress, margin, height - margin - progressHeight, width - 2 * margin, progressHeight, TRUE);
+
+        int bottomRowY = height - margin - progressHeight - margin - buttonHeight;
+
+        int comboWidth = 150;
+        MoveWindow(g_hwndMode, margin, bottomRowY + (buttonHeight - 30) / 2, comboWidth, 200, TRUE);
+
+        int labelWidth = 95;
+        int intervalWidth = 70;
+        int currentX = margin + comboWidth + controlGap;
+
+        MoveWindow(g_hwndIntervalLabel, currentX, bottomRowY, labelWidth, buttonHeight, TRUE);
+        currentX += labelWidth + (controlGap / 2);
+
+        MoveWindow(g_hwndIntervalInput, currentX, bottomRowY + (buttonHeight - 30) / 2, intervalWidth, 30, TRUE);
+
+        int buttonWidth = 100;
+        MoveWindow(g_hwndSubmit, width - margin - buttonWidth * 2 - controlGap, bottomRowY, buttonWidth, buttonHeight, TRUE);
+        MoveWindow(g_hwndClear, width - margin - buttonWidth, bottomRowY, buttonWidth, buttonHeight, TRUE);
+
+        int inputHeight = bottomRowY - margin - margin;
+        if (inputHeight < 0) inputHeight = 0;
+        MoveWindow(g_hwndInput, margin, margin, width - 2 * margin, inputHeight, TRUE);
+
+        InvalidateRect(hwnd, NULL, TRUE);
+    }
+
     LRESULT CALLBACK windowproc_main(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+        static bool inSizeMove = false;
 
         switch (uMsg) {
 
@@ -201,53 +240,21 @@ namespace ui {
                 return 0;
             }
 
-            case WM_SIZE: {
-                if (wParam == SIZE_MINIMIZED) return 0;
-                KillTimer(hwnd, 9999);
-                SetTimer(hwnd, 9999, 30, NULL);
+            case WM_ENTERSIZEMOVE: {
+                inSizeMove = true;
                 return 0;
             }
 
-            case WM_TIMER: {
-                if (wParam == 9999) {
-                    KillTimer(hwnd, 9999);
+            case WM_EXITSIZEMOVE: {
+                inSizeMove = false;
+                UpdateLayout(hwnd);
+                return 0;
+            }
 
-                    RECT rc;
-                    GetClientRect(hwnd, &rc);
-                    int width = rc.right - rc.left;
-                    int height = rc.bottom - rc.top;
-
-                    int margin = 20;
-                    int progressHeight = 25;
-                    int buttonHeight = 35;
-                    int controlGap = 10;
-
-                    MoveWindow(g_hwndProgress, margin, height - margin - progressHeight, width - 2 * margin, progressHeight, TRUE);
-
-                    int bottomRowY = height - margin - progressHeight - margin - buttonHeight;
-
-                    int comboWidth = 150;
-                    MoveWindow(g_hwndMode, margin, bottomRowY + (buttonHeight - 30) / 2, comboWidth, 200, TRUE);
-
-                    int labelWidth = 95;
-                    int intervalWidth = 70;
-                    int currentX = margin + comboWidth + controlGap;
-
-                    MoveWindow(g_hwndIntervalLabel, currentX, bottomRowY, labelWidth, buttonHeight, TRUE);
-                    currentX += labelWidth + (controlGap / 2);
-
-                    MoveWindow(g_hwndIntervalInput, currentX, bottomRowY + (buttonHeight - 30) / 2, intervalWidth, 30, TRUE);
-
-                    int buttonWidth = 100;
-                    MoveWindow(g_hwndSubmit, width - margin - buttonWidth * 2 - controlGap, bottomRowY, buttonWidth, buttonHeight, TRUE);
-                    MoveWindow(g_hwndClear, width - margin - buttonWidth, bottomRowY, buttonWidth, buttonHeight, TRUE);
-
-                    int inputHeight = bottomRowY - margin - margin;
-                    if (inputHeight < 0) inputHeight = 0;
-                    MoveWindow(g_hwndInput, margin, margin, width - 2 * margin, inputHeight, TRUE);
-
-                    InvalidateRect(hwnd, NULL, TRUE);
-                    return 0;
+            case WM_SIZE: {
+                // Creation, maximize and restore do not enter the sizing loop.
+                if (wParam != SIZE_MINIMIZED && !inSizeMove) {
+                    UpdateLayout(hwnd);
                 }
                 return 0;
             }
