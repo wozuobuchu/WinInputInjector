@@ -19,6 +19,8 @@ namespace ui {
     static inline HWND g_hwndIntervalLabel = NULL;
     static inline HWND g_hwndIntervalInput = NULL;
     static inline HWND g_hwndStatus = NULL;
+    static inline HWND g_hwndChunkLabel = NULL;
+    static inline HWND g_hwndChunkInput = NULL;
     static inline HFONT g_hFont = NULL;
 
     static inline constexpr int64_t IDC_INPUT = 2001;
@@ -29,6 +31,8 @@ namespace ui {
     static inline constexpr int64_t IDC_INTERVAL_LABEL = 2006;
     static inline constexpr int64_t IDC_INTERVAL_INPUT = 2007;
     static inline constexpr int64_t IDC_STATUS = 2008;
+    static inline constexpr int64_t IDC_CHUNK_LABEL = 2009;
+    static inline constexpr int64_t IDC_CHUNK_INPUT = 2010;
 } // namespace ui
 
 #endif // !_UI_CONSTANTS_HPP

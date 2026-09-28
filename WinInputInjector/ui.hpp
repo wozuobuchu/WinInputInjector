@@ -52,6 +52,22 @@ namespace ui {
         SendMessageW(g_hwndProgress, PBM_SETPOS, percent, 0);
     }
 
+    inline int NormalizeChunkSize() {
+        if (!g_hwndChunkInput) return injection_settings::DEFAULT_CHUNK_SIZE;
+        const int length = GetWindowTextLengthW(g_hwndChunkInput);
+        std::wstring value(static_cast<size_t>(length) + 1, L'\0');
+        value.resize(GetWindowTextW(g_hwndChunkInput, value.data(), length + 1));
+        const int chunk_size = injection_settings::parse_chunk_size(value);
+        SetWindowTextW(g_hwndChunkInput, std::to_wstring(chunk_size).c_str());
+        return chunk_size;
+    }
+
+    inline void UpdateChunkEnabled() {
+        const BOOL enabled = GetInterval() > 0;
+        EnableWindow(g_hwndChunkInput, enabled);
+        EnableWindow(g_hwndChunkLabel, enabled);
+    }
+
     inline VOID CALLBACK ProgressTimerProc(HWND, UINT, UINT_PTR, DWORD) {
         SetProgress(static_cast<int>(InjectThread::get_progress()));
     }
@@ -91,10 +107,16 @@ namespace ui {
     inline void SubmitInjection(HWND hwnd) {
         if (InjectThread::check_ready()) {
             InjectThread::set_input_text(GetInputText());
-            if (InjectThread::launch_injection(GetSelectedMode(), GetInterval())) {
+            const int interval = GetInterval();
+            // A disabled chunk value is retained verbatim while zero interval ignores it.
+            const int chunk_size = interval > 0 ? NormalizeChunkSize() : injection_settings::DEFAULT_CHUNK_SIZE;
+            if (InjectThread::launch_injection(GetSelectedMode(), interval, chunk_size)) {
                 SetProgress(0);
-                SetWindowTextW(g_hwndStatus, GetInterval() == 0 ?
-                    L"Sending in one batch (0 us); target may miss characters." : L"Sending...");
+                const std::wstring status = interval == 0 ?
+                    L"Sending in one batch (0 us); target may miss characters." :
+                    L"Sending up to " + std::to_wstring(chunk_size) + L" characters per chunk; gap " +
+                        std::to_wstring(interval) + L" us.";
+                SetWindowTextW(g_hwndStatus, status.c_str());
                 EnableWindow(g_hwndSubmit, FALSE);
                 SetTimer(hwnd, 1, 50, ProgressTimerProc);
                 SetTimer(hwnd, 2, 200, CheckReadyTimerProc);
@@ -131,24 +153,29 @@ namespace ui {
         int statusY = height - margin - progressHeight - statusHeight - controlGap;
         MoveWindow(g_hwndStatus, margin, statusY, width - 2 * margin, statusHeight, TRUE);
         int bottomRowY = statusY - controlGap - buttonHeight;
+        int parameterRowY = bottomRowY - controlGap - buttonHeight;
 
         int comboWidth = 150;
-        MoveWindow(g_hwndMode, margin, bottomRowY + (buttonHeight - 30) / 2, comboWidth, 200, TRUE);
+        MoveWindow(g_hwndMode, margin, parameterRowY + (buttonHeight - 30) / 2, comboWidth, 200, TRUE);
 
-        int labelWidth = 95;
+        int labelWidth = 130;
         int intervalWidth = 70;
         int currentX = margin + comboWidth + controlGap;
 
-        MoveWindow(g_hwndIntervalLabel, currentX, bottomRowY, labelWidth, buttonHeight, TRUE);
+        MoveWindow(g_hwndIntervalLabel, currentX, parameterRowY, labelWidth, buttonHeight, TRUE);
         currentX += labelWidth + (controlGap / 2);
 
-        MoveWindow(g_hwndIntervalInput, currentX, bottomRowY + (buttonHeight - 30) / 2, intervalWidth, 30, TRUE);
+        MoveWindow(g_hwndIntervalInput, currentX, parameterRowY + (buttonHeight - 30) / 2, intervalWidth, 30, TRUE);
+        currentX += intervalWidth + controlGap;
+        MoveWindow(g_hwndChunkLabel, currentX, parameterRowY, 100, buttonHeight, TRUE);
+        currentX += 105;
+        MoveWindow(g_hwndChunkInput, currentX, parameterRowY + (buttonHeight - 30) / 2, 80, 30, TRUE);
 
         int buttonWidth = 100;
         MoveWindow(g_hwndSubmit, width - margin - buttonWidth * 2 - controlGap, bottomRowY, buttonWidth, buttonHeight, TRUE);
         MoveWindow(g_hwndClear, width - margin - buttonWidth, bottomRowY, buttonWidth, buttonHeight, TRUE);
 
-        int inputHeight = bottomRowY - margin - margin;
+        int inputHeight = parameterRowY - margin - margin;
         if (inputHeight < 0) inputHeight = 0;
         MoveWindow(g_hwndInput, margin, margin, width - 2 * margin, inputHeight, TRUE);
 
@@ -179,7 +206,7 @@ namespace ui {
             case WM_CTLCOLORSTATIC: {
                 HDC hdc = (HDC)wParam;
                 HWND hwndCtrl = (HWND)lParam;
-                if (hwndCtrl == g_hwndIntervalLabel || hwndCtrl == g_hwndStatus) {
+                if (hwndCtrl == g_hwndIntervalLabel || hwndCtrl == g_hwndStatus || hwndCtrl == g_hwndChunkLabel) {
                     SetBkMode(hdc, TRANSPARENT);
                     return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
                 }
@@ -203,9 +230,12 @@ namespace ui {
 
                 g_hwndProgress = CreateWindowExW(0, PROGRESS_CLASSW, L"", WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 0, 0, 0, 0, hwnd, (HMENU)IDC_PROGRESS, NULL, NULL);
 
-                g_hwndIntervalLabel = CreateWindowExW(0, L"STATIC", L"Interval (us):", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_LABEL, NULL, NULL);
+                g_hwndIntervalLabel = CreateWindowExW(0, L"STATIC", L"Batch gap (us):", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_LABEL, NULL, NULL);
                 g_hwndIntervalInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::to_wstring(DEFAULT_INTERVAL_US).c_str(), WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_INPUT, NULL, NULL);
-                g_hwndStatus = CreateWindowExW(0, L"STATIC", L"Default: 1000 us (1 ms). 0 = one batch; target may miss characters.", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, hwnd, (HMENU)IDC_STATUS, NULL, NULL);
+                g_hwndChunkLabel = CreateWindowExW(0, L"STATIC", L"Chunk size:", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT, 0, 0, 0, 0, hwnd, (HMENU)IDC_CHUNK_LABEL, NULL, NULL);
+                g_hwndChunkInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::to_wstring(injection_settings::DEFAULT_CHUNK_SIZE).c_str(), WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_CHUNK_INPUT, NULL, NULL);
+                SendMessageW(g_hwndChunkInput, EM_SETLIMITTEXT, 32, 0);
+                g_hwndStatus = CreateWindowExW(0, L"STATIC", L"Chunk: 1-32768 characters. Batch gap 0 = full text; chunk size ignored.", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, hwnd, (HMENU)IDC_STATUS, NULL, NULL);
 
                 SendMessageW(g_hwndInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
                 SendMessageW(g_hwndMode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
@@ -214,6 +244,9 @@ namespace ui {
                 SendMessageW(g_hwndIntervalLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
                 SendMessageW(g_hwndIntervalInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
                 SendMessageW(g_hwndStatus, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+                SendMessageW(g_hwndChunkLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+                SendMessageW(g_hwndChunkInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+                UpdateChunkEnabled();
 
                 SetTimer(hwnd, 3, 10, KeyboardTimerProc);
 
@@ -223,6 +256,14 @@ namespace ui {
             case WM_COMMAND: {
                 int cmd = LOWORD(wParam);
                 switch (cmd) {
+                    case IDC_INTERVAL_INPUT: {
+                        if (HIWORD(wParam) == EN_CHANGE) UpdateChunkEnabled();
+                        break;
+                    }
+                    case IDC_CHUNK_INPUT: {
+                        if (HIWORD(wParam) == EN_KILLFOCUS) NormalizeChunkSize();
+                        break;
+                    }
                     case IDC_CLEAR: {
                         SetWindowTextW(g_hwndInput, L"");
                         break;

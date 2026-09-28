@@ -1,4 +1,29 @@
-# Validation — 2026-09-28
+# Validation
+
+## Adjustable chunks — 2026-09-28
+
+- Debug x64 and Release x64 application builds and recorder tests passed.
+- Recorder tests cover chunk 1/128/32768, invalid/empty/oversized values, full and
+  short tails, surrogate boundaries, exact whitespace/newline event preservation,
+  100000-unit chunked samples, failures in later batches, cancellation, and gaps
+  measured after whole batches complete. Gap 0 still takes exactly one call for
+  every tested chunk setting, including invalid numeric values.
+- Live UI confirmed default chunk 128 and gap 1000 us. Entering 99999 and leaving
+  the field displayed 32768; clearing the field and leaving it restored 128.
+  Gap 0 disabled the chunk input; switching back to 1000 retained its value.
+- Default and minimum 720x480 layouts were inspected: both control rows and the
+  status line fit without overlap.
+- In the app's Win32 EDIT control, a 1011-unit Chinese/code/emoji sample ultimately
+  matched in full at chunk 1 and 128, with gap 1000 us. UI-observed completion was
+  roughly 13 seconds in both runs, so this experiment did not establish a stable
+  end-to-end speedup. Chunk 128 initially showed sent status before the complete
+  received text was visible; a subsequent read matched. Sender wait/call counts
+  decrease, but target processing and observation overhead still affect elapsed
+  time. The sample was below the accessibility provider's 4096-unit read limit
+  and did not rely on whitespace normalization for comparison.
+- No browser or original third-party page test was performed for this change.
+
+## Original paced sender — 2026-09-28
 
 - Application: Debug x64 and Release x64 built successfully with MSVC v145.
 - Recorder tests: Debug x64 and Release x64 passed. Coverage includes exact mixed

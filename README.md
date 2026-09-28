@@ -12,7 +12,7 @@
 
 ### Features
 * **Unicode Text Injection:** Sends text natively via Windows Input Simulator APIs (`SendInput`).
-* **Adjustable Interval:** Control the injection speed by setting a microsecond interval between each character.
+* **Adjustable Interval:** Control injection speed with a microsecond gap between chunks and an adjustable chunk size (1-32768 characters, default 128).
 * **Global Hotkey:** Press **F2** to quickly trigger the text injection.
 * **Progress Tracking:** Built-in progress bar to monitor injection status in real-time.
 * **Low Latency Keyboard Hook:** Catches hotkeys globally across the system without delay.
@@ -21,7 +21,7 @@
 1. Run the application.
 2. Type or paste the text you want to inject into the text box.
 3. Select the input mode (currently supports **SendUnicodeInput**).
-4. **Interval (us)** defaults to `1000` (1 ms). If the target drops or scrambles characters, try `10000` (10 ms) or `50000` (50 ms). Set `0` for one-batch, unthrottled injection.
+4. **Batch gap (us)** defaults to `1000` (1 ms), and **Chunk size** defaults to `128` characters (range `1-32768`). If the target drops or scrambles characters, reduce the chunk size or increase the gap, e.g. to `10000` (10 ms). Set the gap to `0` for one-batch, unthrottled injection; chunk size is disabled and ignored, with its value retained.
 5. Switch to the target application (game or website) and select the input field.
 6. Press **F2** to start the injection.
 
@@ -30,7 +30,7 @@ The text box accepts up to **100,000 UTF-16 code units**, including line breaks.
 
 Large texts may cause delays when pasting, editing, or processing input in the target application. An interval of `0` sends all input events in one batch, with the progress bar updating only when injection finishes; this does not guarantee that the target application has finished processing the text.
 
-Positive intervals wait after each send completes, without catch-up bursts. Valid UTF-16 surrogate pairs (such as many emoji) are sent together. The requested delay is not an exact timing guarantee; Windows scheduling can make it longer, and 1 ms may still be too fast for some editors. Newline characters are sent unchanged and may be handled differently by different editors.
+The first chunk is sent immediately. Positive intervals wait after each chunk completes, without catch-up bursts. A valid UTF-16 surrogate pair (such as many emoji) counts as one character and is sent together; each other UTF-16 unit counts as one. Spaces, tabs, CR, and LF are sent unchanged. Multi-code-point emoji can count as multiple characters. Chunk size 1 restores per-character pacing. Empty or invalid chunk values revert to 128; out-of-range values are clamped to 1-32768 on focus loss or submission. Settings are captured at task start, so later edits apply to the next task; settings are not persisted after exit. The maximum is a selectable limit, not a guarantee of target capacity. The requested delay is not an exact timing guarantee; Windows scheduling can make it longer, and 1 ms may still be too fast for some editors. Newline characters are sent unchanged and may be handled differently by different editors.
 
 The status line distinguishes completion, failure, and cancellation. A zero or partial `SendInput` result stops the task without retrying; progress counts only fully sent characters (measured in UTF-16 units, excluding incomplete surrogate pairs), and failures do not show 100%. The failure status includes the completed position, last call's sent/requested event counts, and any Windows error code. Completion means events were sent to Windows, **not that the target text was verified**. Closing the app cancels remaining paced input; an already submitted batch cannot be recalled.
 
@@ -42,7 +42,7 @@ The status line distinguishes completion, failure, and cancellation. A zero or p
 
 ### 功能特点
 * **Unicode 文本注入：** 通过 Windows 原生输入模拟 API (`SendInput`) 发送文本。
-* **自定义间隔时间：** 可设置每个字符注入之间的微秒级间隔，精准控制按键速度。
+* **自定义间隔时间：** 可设置批间微秒级间隔和每批字符数（1～32768，默认 128），控制发送速度。
 * **全局快捷键：** 按下 **F2** 即可快速触发注入（支持后台生效）。
 * **进度追踪：** 内置进度条，实时监控当前文本的注入进度。
 * **低延迟键盘钩子：** 无延迟捕获系统全局快捷键。
@@ -51,7 +51,7 @@ The status line distinguishes completion, failure, and cancellation. A zero or p
 1. 运行应用程序。
 2. 在文本框中输入或粘贴您想要注入的文字。
 3. 选择输入模式（目前支持 **SendUnicodeInput** 模式）。
-4. **Interval (us)（间隔微秒）** 默认为 `1000`（1 毫秒）。如果目标程序出现丢字或错乱，可改为 `10000`（10 毫秒）或 `50000`（50 毫秒）。设置为 `0` 则不节流、整批发送。
+4. **Batch gap (us)（批间间隔微秒）** 默认为 `1000`（1 毫秒），**Chunk size（每批字符数）** 默认为 `128`，范围为 `1～32768`。如果目标程序出现丢字或错乱，可减小 chunk 或增大间隔，例如改为 `10000`（10 毫秒）。间隔设为 `0` 时不节流、单次发送全文，chunk 输入框禁用且设置被忽略，但保留其值。
 5. 切换到目标应用程序（游戏或网页），并选中想要输入文字的输入框。
 6. 按下键盘上的 **F2** 键开始注入。
 
@@ -60,7 +60,7 @@ The status line distinguishes completion, failure, and cancellation. A zero or p
 
 大文本在粘贴、编辑或目标程序处理输入时可能出现延迟。间隔设为 `0` 时会一次性发送全部输入事件，进度条仅在注入结束时更新；这不保证目标程序已经处理完全部文字。
 
-正间隔从每次发送完成后开始等待，不会追赶补发。合法 UTF-16 代理对（例如许多 emoji）会整组发送。间隔是请求的等待时间，Windows 调度可能使实际等待更长；1 毫秒仍可能超过某些编辑器的处理能力。换行字符保持原样发送，不同编辑器可能有不同的处理结果。
+首批立即发送，正间隔从每批发送完成后开始等待，不会追赶补发。合法 UTF-16 代理对（例如许多 emoji）按一个字符计数并整组发送，其他 UTF-16 单元各算一个；空格、Tab、CR、LF 均原样发送。由多个码点组成的 emoji 可能算多个字符。chunk 设为 1 可恢复逐字符限速。空值或非法值在失焦或提交时恢复 128，越界值限制到 1～32768。启动时固定本次任务参数，运行中修改仅影响下次任务；退出后不保存设置。上限仅代表允许选择的范围，不保证目标编辑器能及时处理。间隔是请求的等待时间，Windows 调度可能使实际等待更长；1 毫秒仍可能超过某些编辑器的处理能力。换行字符保持原样发送，不同编辑器可能有不同的处理结果。
 
 状态栏区分完成、失败和取消。`SendInput` 零发送或部分发送时立即停止，不自动重试；进度只计入完整发送的字符（以 UTF-16 单元计数，不包含未完整发送的代理对），失败不会显示 100%。失败信息包含已完成的位置、最后一次调用的实际/请求事件数和可用的 Windows 错误码。完成仅代表事件已发送给 Windows，**不代表目标文本已核对正确**。关闭程序会取消剩余的限速发送；已提交的整批事件无法撤回。
 

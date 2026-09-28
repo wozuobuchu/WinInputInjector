@@ -41,7 +41,7 @@ public:
         return *lock;
     }
 
-    inline static bool launch_injection(const int mode, const int interval) {
+    inline static bool launch_injection(const int mode, const int interval, const int chunk_size) {
         if (!ready_.load(std::memory_order_acquire)) {
             return false;
         }
@@ -58,7 +58,7 @@ public:
         ready_.store(false, std::memory_order_release);
 
         try {
-            worker_ = std::thread(thread_assist, mode, interval);
+            worker_ = std::thread(thread_assist, mode, interval, chunk_size);
         } catch (...) {
             auto lock = report_.acquire_lock();
             *lock = {InjectionStatus::Failed, 0, 0, {0, 0, ERROR_NOT_ENOUGH_MEMORY}};
@@ -87,7 +87,7 @@ private:
         return nullptr;
     }
 
-    inline static void thread_assist(const int mode, const int interval) {
+    inline static void thread_assist(const int mode, const int interval, const int chunk_size) {
         InjectionReport result{InjectionStatus::Failed};
         try {
             std::wstring text;
@@ -98,7 +98,7 @@ private:
             result.total_units = text.size();
             std::unique_ptr<Injector> inj = create_injector(mode);
             if (inj) {
-                result = run_injection(*inj, text, interval, shared_data::sts_.get_token(),
+                result = run_injection(*inj, text, interval, chunk_size, shared_data::sts_.get_token(),
                     [](size_t completed, size_t total) {
                         // Reserve 100% for the final successful outcome.
                         progress_.store((std::min)(99, static_cast<int>(completed * 100 / total)),
