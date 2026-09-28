@@ -66,6 +66,9 @@
     <ClInclude Include="injector.hpp">
       <Filter>头文件\CORE</Filter>
     </ClInclude>
+    <ClInclude Include="injection_run.hpp">
+      <Filter>头文件\CORE</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WinInputInjector.cpp">

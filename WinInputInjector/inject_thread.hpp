@@ -19,6 +19,7 @@
 
 #include "inj_keyboardsim.hpp"
 #include "inj_unicode.hpp"
+#include "injection_run.hpp"
 
 class InjectThread final {
 public:
@@ -35,6 +36,11 @@ public:
         return ready_.load(std::memory_order_acquire);
     }
 
+    inline static InjectionReport get_report() {
+        auto lock = report_.acquire_lock();
+        return *lock;
+    }
+
     inline static bool launch_injection(const int mode, const int interval) {
         if (!ready_.load(std::memory_order_acquire)) {
             return false;
@@ -45,9 +51,19 @@ public:
         }
 
         progress_.store(0, std::memory_order_relaxed);
+        {
+            auto lock = report_.acquire_lock();
+            *lock = {InjectionStatus::Running};
+        }
         ready_.store(false, std::memory_order_release);
 
-        worker_ = std::thread(thread_assist, mode, interval);
+        try {
+            worker_ = std::thread(thread_assist, mode, interval);
+        } catch (...) {
+            auto lock = report_.acquire_lock();
+            *lock = {InjectionStatus::Failed, 0, 0, {0, 0, ERROR_NOT_ENOUGH_MEMORY}};
+            ready_.store(true, std::memory_order_release);
+        }
         return true;
     }
 
@@ -72,44 +88,45 @@ private:
     }
 
     inline static void thread_assist(const int mode, const int interval) {
-        std::wstring text;
-        {
-            auto lck = input_text_.acquire_lock();
-            text = *lck;
-        }
-
-        std::unique_ptr<Injector> inj = create_injector(mode);
-
-        if (inj && !text.empty()) {
-            if (interval > 0) {
-                thread_assist_stepper(text, interval, inj.get());
-            } else {
-                thread_assist_utmost(text, interval, inj.get());
+        InjectionReport result{InjectionStatus::Failed};
+        try {
+            std::wstring text;
+            {
+                auto lck = input_text_.acquire_lock();
+                text = *lck;
             }
+            result.total_units = text.size();
+            std::unique_ptr<Injector> inj = create_injector(mode);
+            if (inj) {
+                result = run_injection(*inj, text, interval, shared_data::sts_.get_token(),
+                    [](size_t completed, size_t total) {
+                        // Reserve 100% for the final successful outcome.
+                        progress_.store((std::min)(99, static_cast<int>(completed * 100 / total)),
+                            std::memory_order_relaxed);
+                        auto lock = report_.acquire_lock();
+                        lock->completed_units = completed;
+                        lock->total_units = total;
+                    });
+            } else {
+                result.last_send.error_code = ERROR_INVALID_PARAMETER;
+            }
+        } catch (...) {
+            const auto previous = get_report();
+            result.completed_units = previous.completed_units;
+            result.last_send.error_code = ERROR_NOT_ENOUGH_MEMORY;
         }
-
-        progress_.store(100, std::memory_order_relaxed);
+        {
+            auto lock = report_.acquire_lock();
+            *lock = result;
+        }
+        if (result.status == InjectionStatus::Completed) {
+            progress_.store(100, std::memory_order_relaxed);
+        }
         ready_.store(true, std::memory_order_release);
     }
 
-    inline static void thread_assist_utmost(const std::wstring& text, const int interval, Injector* inj) {
-        (void)interval;
-        inj->inject_wstring(text);
-    }
-
-    inline static void thread_assist_stepper(const std::wstring& text, const int interval, Injector* inj) {
-        inj->set_tick_interval(interval);
-        for (size_t i = 0; i < text.size(); ++i) {
-            if (shared_data::sts_.stop_requested()) {
-                break;
-            }
-            inj->tick();
-            inj->inject_wchar(text[i]);
-            progress_.store(static_cast<int>((static_cast<size_t>(i + 1) * 100 / text.size())), std::memory_order_relaxed);
-        }
-    }
-
     inline static aop::LockBox<std::wstring> input_text_;
+    inline static aop::LockBox<InjectionReport> report_;
 
     inline static std::atomic<int> progress_{0};
     inline static std::atomic<bool> ready_{true};

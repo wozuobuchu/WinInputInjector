@@ -11,7 +11,11 @@
 
 class UnicodeSender final : public Injector {
 public:
-    virtual bool inject_wstring(const std::wstring& text) override {
+    using SendInputFunction = decltype(&::SendInput);
+
+    explicit UnicodeSender(SendInputFunction send_input = &::SendInput) : send_input_(send_input) {}
+
+    InjectionResult inject_wstring(std::wstring_view text) override {
         std::vector<INPUT> inputs;
         inputs.reserve(text.size() * 2);
 
@@ -31,25 +35,18 @@ public:
         }
 
         if (!inputs.empty()) {
-            return SendInput((UINT)inputs.size(), inputs.data(), sizeof(INPUT)) == inputs.size();
+            // Clear stale errors: Windows may not provide a reason for a short send.
+            SetLastError(ERROR_SUCCESS);
+            const UINT sent = send_input_(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+            const DWORD error = sent == inputs.size() ? ERROR_SUCCESS : GetLastError();
+            return {inputs.size(), sent, error};
         }
 
-        return false;
+        return {};
     }
 
-    virtual bool inject_wchar(wchar_t ch) override {
-        INPUT inputs[2] = {};
-
-        inputs[0].type = INPUT_KEYBOARD;
-        inputs[0].ki.wScan = ch;
-        inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
-
-        inputs[1].type = INPUT_KEYBOARD;
-        inputs[1].ki.wScan = ch;
-        inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-
-        return SendInput(2, inputs, sizeof(INPUT)) == 2;
-    }
+private:
+    SendInputFunction send_input_;
 };
 
 #endif // !_INJ_UNICODE_HPP

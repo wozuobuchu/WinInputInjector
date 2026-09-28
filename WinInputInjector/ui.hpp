@@ -39,7 +39,7 @@ namespace ui {
     }
 
     inline int GetInterval() {
-        if (!g_hwndIntervalInput) return 0;
+        if (!g_hwndIntervalInput) return DEFAULT_INTERVAL_US;
         wchar_t buf[32] = {0};
         GetWindowTextW(g_hwndIntervalInput, buf, 32);
         // wcstoll saturates on overflow, so oversized values still reach the clamp.
@@ -62,6 +62,29 @@ namespace ui {
             KillTimer(hwnd, 2);
             SetProgress(static_cast<int>(InjectThread::get_progress()));
             EnableWindow(g_hwndSubmit, TRUE);
+            const auto report = InjectThread::get_report();
+            std::wstring status;
+            switch (report.status) {
+                case InjectionStatus::Completed:
+                    status = report.total_units == 0 ? L"No text to send." :
+                        L"Sent to Windows; target text has not been verified.";
+                    break;
+                case InjectionStatus::Cancelled:
+                    status = L"Cancelled after " + std::to_wstring(report.completed_units) + L"/" +
+                        std::to_wstring(report.total_units) + L" UTF-16 units.";
+                    break;
+                case InjectionStatus::Failed:
+                    status = L"Failed after " + std::to_wstring(report.completed_units) + L"/" +
+                        std::to_wstring(report.total_units) + L" units; last send " +
+                        std::to_wstring(report.last_send.sent_events) + L"/" +
+                        std::to_wstring(report.last_send.requested_events) + L" events. " +
+                        (report.last_send.error_code ? L"Error " + std::to_wstring(report.last_send.error_code) :
+                            L"Windows provided no error code.");
+                    break;
+                default:
+                    break;
+            }
+            SetWindowTextW(g_hwndStatus, status.c_str());
         }
     }
 
@@ -69,6 +92,9 @@ namespace ui {
         if (InjectThread::check_ready()) {
             InjectThread::set_input_text(GetInputText());
             if (InjectThread::launch_injection(GetSelectedMode(), GetInterval())) {
+                SetProgress(0);
+                SetWindowTextW(g_hwndStatus, GetInterval() == 0 ?
+                    L"Sending in one batch (0 us); target may miss characters." : L"Sending...");
                 EnableWindow(g_hwndSubmit, FALSE);
                 SetTimer(hwnd, 1, 50, ProgressTimerProc);
                 SetTimer(hwnd, 2, 200, CheckReadyTimerProc);
@@ -101,7 +127,10 @@ namespace ui {
 
         MoveWindow(g_hwndProgress, margin, height - margin - progressHeight, width - 2 * margin, progressHeight, TRUE);
 
-        int bottomRowY = height - margin - progressHeight - margin - buttonHeight;
+        int statusHeight = 44; // Allow long failure details to wrap at the minimum window width.
+        int statusY = height - margin - progressHeight - statusHeight - controlGap;
+        MoveWindow(g_hwndStatus, margin, statusY, width - 2 * margin, statusHeight, TRUE);
+        int bottomRowY = statusY - controlGap - buttonHeight;
 
         int comboWidth = 150;
         MoveWindow(g_hwndMode, margin, bottomRowY + (buttonHeight - 30) / 2, comboWidth, 200, TRUE);
@@ -150,7 +179,7 @@ namespace ui {
             case WM_CTLCOLORSTATIC: {
                 HDC hdc = (HDC)wParam;
                 HWND hwndCtrl = (HWND)lParam;
-                if (hwndCtrl == g_hwndIntervalLabel) {
+                if (hwndCtrl == g_hwndIntervalLabel || hwndCtrl == g_hwndStatus) {
                     SetBkMode(hdc, TRANSPARENT);
                     return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
                 }
@@ -175,7 +204,8 @@ namespace ui {
                 g_hwndProgress = CreateWindowExW(0, PROGRESS_CLASSW, L"", WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 0, 0, 0, 0, hwnd, (HMENU)IDC_PROGRESS, NULL, NULL);
 
                 g_hwndIntervalLabel = CreateWindowExW(0, L"STATIC", L"Interval (us):", WS_CHILD | WS_VISIBLE | SS_CENTERIMAGE | SS_RIGHT, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_LABEL, NULL, NULL);
-                g_hwndIntervalInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"0", WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_INPUT, NULL, NULL);
+                g_hwndIntervalInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::to_wstring(DEFAULT_INTERVAL_US).c_str(), WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL, 0, 0, 0, 0, hwnd, (HMENU)IDC_INTERVAL_INPUT, NULL, NULL);
+                g_hwndStatus = CreateWindowExW(0, L"STATIC", L"Default: 1000 us (1 ms). 0 = one batch; target may miss characters.", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 0, 0, hwnd, (HMENU)IDC_STATUS, NULL, NULL);
 
                 SendMessageW(g_hwndInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
                 SendMessageW(g_hwndMode, WM_SETFONT, (WPARAM)g_hFont, TRUE);
@@ -183,6 +213,7 @@ namespace ui {
                 SendMessageW(g_hwndClear, WM_SETFONT, (WPARAM)g_hFont, TRUE);
                 SendMessageW(g_hwndIntervalLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
                 SendMessageW(g_hwndIntervalInput, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+                SendMessageW(g_hwndStatus, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
                 SetTimer(hwnd, 3, 10, KeyboardTimerProc);
 

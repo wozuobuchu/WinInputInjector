@@ -1,4 +1,4 @@
-﻿#ifndef _UI_CONSTANTS_HPP
+#ifndef _UI_CONSTANTS_HPP
 #define _UI_CONSTANTS_HPP
 
 #pragma once
@@ -9,6 +9,7 @@ namespace ui {
     static inline constexpr int UI_WIDTH = 900;
     static inline constexpr int UI_HEIGHT = 600;
     static inline constexpr int INPUT_TEXT_LIMIT = 100'000; // UTF-16 code units.
+    static inline constexpr int DEFAULT_INTERVAL_US = 1000;
 
     static inline HWND g_hwndInput = NULL;
     static inline HWND g_hwndMode = NULL;
@@ -17,6 +18,7 @@ namespace ui {
     static inline HWND g_hwndProgress = NULL;
     static inline HWND g_hwndIntervalLabel = NULL;
     static inline HWND g_hwndIntervalInput = NULL;
+    static inline HWND g_hwndStatus = NULL;
     static inline HFONT g_hFont = NULL;
 
     static inline constexpr int64_t IDC_INPUT = 2001;
@@ -26,6 +28,7 @@ namespace ui {
     static inline constexpr int64_t IDC_PROGRESS = 2005;
     static inline constexpr int64_t IDC_INTERVAL_LABEL = 2006;
     static inline constexpr int64_t IDC_INTERVAL_INPUT = 2007;
+    static inline constexpr int64_t IDC_STATUS = 2008;
 } // namespace ui
 
 #endif // !_UI_CONSTANTS_HPP

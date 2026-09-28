@@ -5,38 +5,55 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
-#include <thread>
+#include <mutex>
+#include <stop_token>
+#include <string_view>
+
+struct InjectionResult {
+    size_t requested_events = 0;
+    size_t sent_events = 0;
+    uint32_t error_code = 0;
+
+    bool succeeded() const { return sent_events == requested_events; }
+};
 
 class Injector {
 private:
-    int64_t tick_interval_us_ = -1;
-    std::chrono::high_resolution_clock::time_point last_tick_time_;
+    std::chrono::microseconds tick_interval_{0};
+    std::chrono::steady_clock::time_point last_send_completed_{};
+    bool has_sent_ = false;
+    std::mutex wait_mutex_;
+    std::condition_variable_any wait_cv_;
 
 public:
     Injector() = default;
 
     virtual ~Injector() = default;
 
-    virtual bool inject_wstring(const std::wstring& text) = 0;
+    virtual InjectionResult inject_wstring(std::wstring_view text) = 0;
 
-    virtual bool inject_wchar(wchar_t ch) = 0;
-
-    void set_tick_interval(int64_t interval_us) {
-        tick_interval_us_ = std::clamp(interval_us, -1LL, 1000000LL);
+    virtual InjectionResult inject_wchar(wchar_t ch) {
+        return inject_wstring(std::wstring_view(&ch, 1));
     }
 
-    void tick() {
-        if (tick_interval_us_ > 0) {
-            auto now = std::chrono::high_resolution_clock::now();
-            auto next_tick = last_tick_time_ + std::chrono::microseconds(tick_interval_us_);
-            if (now < next_tick) {
-                std::this_thread::sleep_until(next_tick);
-                last_tick_time_ = next_tick;
-            } else {
-                last_tick_time_ = now;
-            }
+    void set_tick_interval(int64_t interval_us) {
+        tick_interval_ = std::chrono::microseconds(std::clamp<int64_t>(interval_us, 0, 1000000));
+        has_sent_ = false;
+    }
+
+    bool tick(std::stop_token stop) {
+        if (has_sent_ && tick_interval_.count() > 0) {
+            std::unique_lock lock(wait_mutex_);
+            wait_cv_.wait_until(lock, stop, last_send_completed_ + tick_interval_, [] { return false; });
         }
+        return !stop.stop_requested();
+    }
+
+    void mark_send_completed() {
+        last_send_completed_ = std::chrono::steady_clock::now();
+        has_sent_ = true;
     }
 };
 
